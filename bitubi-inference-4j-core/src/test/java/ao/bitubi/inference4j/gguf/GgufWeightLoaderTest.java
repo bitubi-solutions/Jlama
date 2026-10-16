@@ -22,13 +22,16 @@ public class GgufWeightLoaderTest {
         raw.putShort((short) 0x4000);
         for (int i=0;i<32;i++) raw.put((byte)1);
         Path path=temporary.newFile("weights.gguf").toPath();
-        new GgufTestWriter(32).addTensor("blk.0.attn_q.weight",GgufType.Q8_0,new long[]{32,2},raw.flip()).write(path);
+        new GgufTestWriter(32).addTensor("blk.0.attn_q.weight",GgufType.Q8_0,new long[]{32,2},raw.flip())
+            .addTensor("token_embd.weight",GgufType.Q8_0,new long[]{32,2},raw.rewind()).write(path);
         GgufWeightLoader loader=new GgufWeightLoader(new GgufFile(path));
         assertArrayEquals(new int[]{2,32},loader.tensorInfoMap().get("model.layers.0.self_attn.q_proj.weight").shape);
         Q8ByteBufferTensor tensor=(Q8ByteBufferTensor)loader.load("model.layers.0.self_attn.q_proj.weight");
         assertEquals(-16f,tensor.get(0,0),0f);
         assertEquals(15f,tensor.get(0,31),0f);
         assertEquals(2f,tensor.get(1,0),0f);
+        FloatBufferTensor embedding=(FloatBufferTensor)loader.load("model.embed_tokens.weight");
+        assertEquals(-16f,embedding.get(0,0),0f);
     }
 
     @Test public void widensF16AndUnpacksQ4Scale() throws Exception {

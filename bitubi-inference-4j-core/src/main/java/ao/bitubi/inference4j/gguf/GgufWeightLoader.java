@@ -84,9 +84,13 @@ public final class GgufWeightLoader implements WeightLoader {
         }
         values.flip(); scales.flip();
         FloatBufferTensor scaleTensor = new FloatBufferTensor(scales, shape.scaleLastDim(1f / 32), true);
-        return info.getType() == GgufType.Q8_0
+        AbstractTensor tensor = info.getType() == GgufType.Q8_0
             ? new Q8ByteBufferTensor(name, values, scaleTensor, shape, true)
             : new Q4ByteBufferTensor(name, values, scaleTensor, shape, true);
+        // A incorporacao no residual ainda nao suporta F32 x I8.
+        return name.equals("model.embed_tokens.weight") && info.getType() == GgufType.Q8_0
+            ? new FloatBufferTensor(tensor)
+            : tensor;
     }
     @Override public void close() {}
 }
