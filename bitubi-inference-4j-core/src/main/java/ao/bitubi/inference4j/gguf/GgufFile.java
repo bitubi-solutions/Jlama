@@ -1,408 +1,189 @@
 /*
  * Copyright 2026 Bitubi Solutions
- *
- * Este ficheiro é parte do projeto bitubi-inference-4j.
  * Licenciado sob Apache License 2.0.
  */
 package ao.bitubi.inference4j.gguf;
 
-import ao.bitubi.inference4j.util.UnsafeDirectByteBuffer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * Representa um arquivo GGUF aberto com mapeamento de memória.
- * Valida magic e versão, lê metadados e informações dos tensores.
- */
+/** Leitor GGUF v3 little-endian. Os metadados sao lidos por canal; cada tensor e mapeado separadamente. */
 public final class GgufFile {
-    private static final int GGUF_MAGIC = 0x47475546; // 'GGUF' in ASCII, little-endian
+    private static final int GGUF_MAGIC = 0x46554747;
     private static final int VERSION = 3;
-
-    private final MappedByteBuffer buffer;
+    private final Path path;
+    private final long fileSize;
     private final long dataOffset;
     private final int alignment;
-    private final long metadataKvCount;
-    private final Map<String, String> metadata;
+    private final Map<String, Object> metadata;
     private final List<GgufTensorInfo> tensors;
+    private final Map<String, GgufTensorInfo> tensorsByName;
 
-    /**
-     * Abre um arquivo GGUF e lê seu cabeçalho e informações dos tensores.
-     *
-     * @param path caminho para o arquivo GGUF
-     * @throws IOException se ocorrer erro ao abrir ou ler o arquivo
-     */
     public GgufFile(Path path) throws IOException {
+        this.path = path;
         try (FileChannel channel = FileChannel.open(path)) {
-            this.buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
-            this.buffer.order(ByteOrder.LITTLE_ENDIAN);
-
-            // Validar magic
-            int magic = buffer.getInt();
-            if (magic != GGUF_MAGIC) {
-                throw new IOException("Magic GGUF inválido: " + Integer.toHexString(magic) + ", esperado: " + Integer.toHexString(GGUF_MAGIC));
+            this.fileSize = channel.size();
+            Reader reader = new Reader(channel);
+            int magic = reader.readInt();
+            if (magic != GGUF_MAGIC) throw new IOException("Magic GGUF invalido: " + Integer.toHexString(magic));
+            int version = reader.readInt();
+            if (version != VERSION) throw new IOException("Versao GGUF nao suportada: " + version + "; esperada: " + VERSION);
+            long tensorCount = checkedCount(reader.readLong(), "tensores");
+            long metadataCount = checkedCount(reader.readLong(), "metadados");
+            Map<String, Object> parsedMetadata = new HashMap<>();
+            for (long i = 0; i < metadataCount; i++) {
+                String key = reader.readString();
+                Object value = reader.readValue(reader.readInt(), 0);
+                if (parsedMetadata.putIfAbsent(key, value) != null) throw new IOException("Chave GGUF duplicada: " + key);
             }
-
-            // Validar versão
-            int version = buffer.getInt();
-            if (version != VERSION) {
-                throw new IOException("Versão GGUF inválida: " + version + ", esperada: " + VERSION);
+            Object alignmentValue = parsedMetadata.get("general.alignment");
+            this.alignment = alignmentValue == null ? 32 : asInt(alignmentValue, "general.alignment");
+            if (alignment < 8 || (alignment & (alignment - 1)) != 0) throw new IOException("Alinhamento GGUF invalido: " + alignment);
+            this.metadata = Collections.unmodifiableMap(parsedMetadata);
+            if (tensorCount > (fileSize - reader.position()) / 24) throw new IOException("Contagem de tensores GGUF inconsistente: " + tensorCount);
+            List<RawTensor> rawTensors = new ArrayList<>((int) tensorCount);
+            for (int i = 0; i < tensorCount; i++) {
+                String name = reader.readString();
+                int dimensionCount = reader.readInt();
+                if (dimensionCount < 1 || dimensionCount > 4) throw new IOException("Numero de dimensoes GGUF invalido em " + name + ": " + dimensionCount);
+                long[] dims = new long[dimensionCount];
+                for (int d = 0; d < dimensionCount; d++) dims[d] = reader.readLong();
+                int typeId = reader.readInt();
+                long relativeOffset = reader.readLong();
+                if (relativeOffset < 0 || relativeOffset % alignment != 0) throw new IOException("Offset/alinhamento invalido em " + name + ": " + relativeOffset);
+                try { rawTensors.add(new RawTensor(name, GgufType.fromId(typeId), dims, relativeOffset)); }
+                catch (IllegalArgumentException e) { throw new IOException("Tensor " + name + ": " + e.getMessage(), e); }
             }
-
-            // Ler contagem de tensores e pares chave-valor de metadados
-            long tensorCount = buffer.getLong();
-            long metadataKvCount = buffer.getLong();
-            this.metadataKvCount = metadataKvCount;
-
-            // Ler alinhamento (general.alignment)
-            int alignment = buffer.getInt();
-            if (alignment <= 0 || (alignment & (alignment - 1)) != 0) {
-                throw new IOException("Alinhamento inválido: " + alignment + ". Deve ser potência de 2 positiva.");
+            this.dataOffset = alignUp(reader.position(), alignment);
+            if (dataOffset > fileSize) throw new IOException("Cabecalho GGUF truncado antes dos dados dos tensores");
+            List<GgufTensorInfo> parsedTensors = new ArrayList<>((int) tensorCount);
+            Map<String, GgufTensorInfo> byName = new HashMap<>();
+            for (RawTensor raw : rawTensors) {
+                GgufTensorInfo info;
+                try { info = new GgufTensorInfo(raw.name, raw.type, raw.dims, raw.offset, dataOffset); }
+                catch (ArithmeticException | IllegalArgumentException e) { throw new IOException("Descritor de tensor GGUF invalido: " + raw.name, e); }
+                if (info.getOffset() > fileSize || info.getByteSize() > fileSize - info.getOffset()) {
+                    throw new IOException("Dados truncados para tensor GGUF " + raw.name);
+                }
+                if (byName.putIfAbsent(raw.name, info) != null) throw new IOException("Nome de tensor GGUF duplicado: " + raw.name);
+                parsedTensors.add(info);
             }
-            this.alignment = alignment;
-
-            // Ler metadados para determinar a posição atual do buffer
-            this.metadata = new HashMap<>();
-            this.tensors = new ArrayList<>();
-
-            long metadataStart = buffer.position();
-            long metadataEnd = skipMetadata(buffer, metadataKvCount);
-
-            // Retornar ao início dos metadados para lê-los
-            if (metadataStart > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException("Posição de metadados GGUF muito grande: " + metadataStart);
-            }
-            buffer.position((int) metadataStart);
-            readMetadata(metadataKvCount);
-
-            // Ler informações dos tensores
-            for (long i = 0; i < tensorCount; i++) {
-                tensors.add(readTensorInfo());
-            }
-
-            // Calcular o início dos dados (depois das informações dos tensores, alinhado)
-            this.dataOffset = alignUp(buffer.position(), alignment);
+            this.tensors = Collections.unmodifiableList(parsedTensors);
+            this.tensorsByName = Collections.unmodifiableMap(byName);
+        } catch (java.nio.BufferUnderflowException | IndexOutOfBoundsException e) {
+            throw new IOException("Cabecalho GGUF truncado ou malformado", e);
+        } catch (ArithmeticException e) {
+            throw new IOException("Tamanho/offset GGUF excede os limites suportados", e);
         }
     }
 
-    /**
-     * Pula os metadados no buffer e retorna a posição final.
-     */
-    private long skipMetadata(ByteBuffer buffer, long count) {
-        long pos = buffer.position();
-        for (long i = 0; i < count; i++) {
-            // Chave: len (uint64) + bytes UTF-8
-            long keyLen = buffer.getLong();
-            if (keyLen > Integer.MAX_VALUE) {
-                throw new IllegalArgumentException("Comprimento de chave GGUF muito grande: " + keyLen);
-            }
-            buffer.position(buffer.position() + (int) keyLen);
-
-            // Valor: primeiro o tipo (uint32)
-            int type = buffer.getInt();
-            switch (type) {
-                case 0: // UINT8
-                case 1: // INT8
-                case 2: // UINT16
-                case 3: // INT16
-                case 4: // UINT32
-                case 5: // INT32
-                    buffer.position(buffer.position() + 4);
-                    break;
-                case 6: // FLOAT32
-                    buffer.position(buffer.position() + 4);
-                    break;
-                case 7: // BOOL
-                    buffer.position(buffer.position() + 1);
-                    break;
-                case 8: // STRING
-                    long stringLen = buffer.getLong();
-                    if (stringLen > Integer.MAX_VALUE) {
-                        throw new IllegalArgumentException("Comprimento de string GGUF muito grande: " + stringLen);
-                    }
-                    buffer.position(buffer.position() + (int) stringLen);
-                    break;
-                case 9: // ARRAY
-                    int arrayType = buffer.getInt();
-                    long arrayLen = buffer.getLong();
-                    int elementSize;
-                    switch (arrayType) {
-                        case 0: // UINT8
-                        case 1: // INT8
-                        case 2: // UINT16
-                        case 3: // INT16
-                        case 4: // UINT32
-                        case 5: // INT32
-                            elementSize = 4;
-                            break;
-                        case 6: // FLOAT32
-                            elementSize = 4;
-                            break;
-                        case 7: // BOOL
-                            elementSize = 1;
-                            break;
-                        case 8: // STRING
-                            // Para arrays de string, precisamos ler cada string
-                            for (long j = 0; j < arrayLen; j++) {
-                                long strLen = buffer.getLong();
-                                if (strLen > Integer.MAX_VALUE) {
-                                    throw new IllegalArgumentException("Comprimento de string GGUF muito grande: " + strLen);
-                                }
-                                buffer.position(buffer.position() + (int) strLen);
-                            }
-                            elementSize = 0; // já avançamos
-                            break;
-                        case 9: // ARRAY (aninhado) - não suportado neste parser simples
-                        case 10: // UINT64
-                        case 11: // INT64
-                        case 12: // FLOAT64
-                            elementSize = 8;
-                            break;
-                        default:
-                            throw new IllegalArgumentException("Tipo de array GGUF desconhecido: " + arrayType);
-                    }
-                    if (elementSize > 0) {
-                        buffer.position(buffer.position() + (int) (arrayLen * elementSize));
-                    }
-                    break;
-                default:
-                    throw new IllegalArgumentException("Tipo de valor GGUF desconhecido: " + type);
-            }
-        }
-        return buffer.position();
+    private static long checkedCount(long value, String what) throws IOException {
+        if (value < 0 || value > Integer.MAX_VALUE) throw new IOException("Contagem de " + what + " GGUF invalida: " + value);
+        return value;
     }
 
-    /**
-     * Lê os metadados chave-valor do buffer.
-     */
-    private void readMetadata(long count) {
-        for (long i = 0; i < count; i++) {
-            long keyLen = buffer.getLong();
-            byte[] keyBytes = new byte[(int) keyLen];
-            buffer.get(keyBytes);
-            String key = new String(keyBytes, java.nio.charset.StandardCharsets.UTF_8);
-
-            int type = buffer.getInt();
-            String value;
-            switch (type) {
-                case 0: // UINT8
-                    value = String.valueOf(buffer.get() & 0xFF);
-                    break;
-                case 1: // INT8
-                    value = String.valueOf(buffer.get());
-                    break;
-                case 2: // UINT16
-                    value = String.valueOf(buffer.getShort() & 0xFFFF);
-                    break;
-                case 3: // INT16
-                    value = String.valueOf(buffer.getShort());
-                    break;
-                case 4: // UINT32
-                    value = String.valueOf(buffer.getInt() & 0xFFFFFFFFL);
-                    break;
-                case 5: // INT32
-                    value = String.valueOf(buffer.getInt());
-                    break;
-                case 6: // FLOAT32
-                    value = String.valueOf(buffer.getFloat());
-                    break;
-                case 7: // BOOL
-                    value = String.valueOf(buffer.get() != 0);
-                    break;
-                case 8: // STRING
-                    long stringLen = buffer.getLong();
-                    if (stringLen > Integer.MAX_VALUE) {
-                        throw new IllegalArgumentException("Comprimento de string GGUF muito grande: " + stringLen);
-                    }
-                    byte[] valBytes = new byte[(int) stringLen];
-                    buffer.get(valBytes);
-                    value = new String(valBytes, java.nio.charset.StandardCharsets.UTF_8);
-                    break;
-                case 9: // ARRAY
-                    // Para simplificação, representamos arrays como strings JSON
-                    // Implementação completa deveria parsear o array corretamente
-                    int arrayType = buffer.getInt();
-                    long arrayLen = buffer.getLong();
-                    value = parseArray(buffer, arrayType, arrayLen);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Tipo de valor GGUF desconhecido: " + type);
-            }
-            metadata.put(key, value);
+    private static int asInt(Object value, String key) throws IOException {
+        if (!(value instanceof Number number) || number.longValue() < 0 || number.longValue() > Integer.MAX_VALUE) {
+            throw new IOException("Valor " + key + " invalido: " + value);
         }
+        return number.intValue();
     }
 
-    /**
-     * Parseia um array GGUF para representação string (simplificado).
-     */
-    private String parseArray(ByteBuffer buffer, int arrayType, long arrayLen) {
-        StringBuilder sb = new StringBuilder("[");
-        switch (arrayType) {
-            case 0: // UINT8
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.get() & 0xFF);
-                }
-                break;
-            case 1: // INT8
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.get());
-                }
-                break;
-            case 2: // UINT16
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getShort() & 0xFFFF);
-                }
-                break;
-            case 3: // INT16
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getShort());
-                }
-                break;
-            case 4: // UINT32
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getInt() & 0xFFFFFFFFL);
-                }
-                break;
-            case 5: // INT32
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getInt());
-                }
-                break;
-            case 6: // FLOAT32
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getFloat());
-                }
-                break;
-            case 7: // BOOL
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.get() != 0);
-                }
-                break;
-            case 9: // ARRAY (aninhado)
-                // Não implementado totalmente
-                sb.append("<nested array>");
-                buffer.position((int) (buffer.position() + arrayLen * 4)); // aproximação
-                break;
-            case 10: // UINT64
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getLong() & 0xFFFFFFFFFFFFFFFFL);
-                }
-                break;
-            case 11: // INT64
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getLong());
-                }
-                break;
-            case 12: // FLOAT64
-                for (long i = 0; i < arrayLen; i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(buffer.getDouble());
-                }
-                break;
-            default:
-                throw new IllegalArgumentException("Tipo de array GGUF desconhecido: " + arrayType);
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    /**
-     * Lê as informações de um tensor do buffer.
-     */
-    private GgufTensorInfo readTensorInfo() {
-        // Nome: string (len + bytes)
-        long nameLen = buffer.getLong();
-        byte[] nameBytes = new byte[(int) nameLen];
-        buffer.get(nameBytes);
-        String name = new String(nameBytes, java.nio.charset.StandardCharsets.UTF_8);
-
-        // Número de dimensões
-        int nDimensions = buffer.getInt();
-
-        // Dimensões
-        long[] dims = new long[nDimensions];
-        for (int i = 0; i < nDimensions; i++) {
-            dims[i] = buffer.getLong();
-        }
-
-        // Tipo
-        int typeId = buffer.getInt();
-        GgufType type = GgufType.fromId(typeId);
-
-        // Offset relativo ao início dos dados
-        long offset = buffer.getLong();
-
-        return new GgufTensorInfo(name, type, dims, offset);
-    }
-
-    /**
-     * Alinha um valor para cima até o múltiplo mais próximo do alinhamento.
-     */
     private static long alignUp(long value, int alignment) {
-        return (value + alignment - 1) & ~(alignment - 1);
+        return Math.addExact(value, alignment - 1) & -((long) alignment);
     }
 
-    /**
-     * Retorna o mapeamento de memória do arquivo.
-     */
-    public MappedByteBuffer getBuffer() {
-        return buffer;
+    public int getAlignment() { return alignment; }
+    public long getDataOffset() { return dataOffset; }
+    public Map<String, Object> getMetadata() { return metadata; }
+    public List<GgufTensorInfo> getTensors() { return tensors; }
+    public GgufTensorInfo getTensor(String name) { return tensorsByName.get(name); }
+
+    /** Mapeia apenas o intervalo deste tensor; o chamador deve terminar de consumir o buffer rapidamente. */
+    public MappedByteBuffer mapTensor(GgufTensorInfo tensor) throws IOException {
+        Objects.requireNonNull(tensor, "tensor");
+        if (tensorsByName.get(tensor.getName()) != tensor) throw new IllegalArgumentException("Tensor nao pertence a este ficheiro: " + tensor.getName());
+        long size = tensor.getByteSize();
+        if (size > Integer.MAX_VALUE) throw new IOException("Tensor excede o limite de um mapeamento Java: " + tensor.getName() + " (" + size + " bytes)");
+        try (FileChannel channel = FileChannel.open(path)) {
+            MappedByteBuffer mapped = channel.map(FileChannel.MapMode.READ_ONLY, tensor.getOffset(), size);
+            mapped.order(ByteOrder.LITTLE_ENDIAN);
+            return mapped;
+        }
     }
 
-    /**
-     * Retorna o offset onde os dados dos tensores começam.
-     */
-    public long getDataOffset() {
-        return dataOffset;
-    }
+    private record RawTensor(String name, GgufType type, long[] dims, long offset) {}
 
-    /**
-     * Retorna o alinhamento usado no arquivo.
-     */
-    public int getAlignment() {
-        return alignment;
-    }
-
-    /**
-     * Retorna os metadados chave-valor lidos do arquivo.
-     */
-    public Map<String, String> getMetadata() {
-        return metadata;
-    }
-
-    /**
-     * Retorna a lista de informações dos tensores.
-     */
-    public List<GgufTensorInfo> getTensors() {
-        return tensors;
-    }
-
-    /**
-     * Fecha o mapeamento de memória.
-     * Nota: Em Java, o mapeamento é fechado quando o objeto é coletado pelo GC,
-     * mas podemos tentar liberar explicitamente se necessário.
-     */
-    public void close() {
-        // Em Java, MappedByteBuffer não tem método close explícito
-        // O buffer será liberado quando o objeto for coletado pelo GC
-        // Para forçar a liberação, precisaríamos usar Cleaner ou técnicas similares
-        // Por simplicidade, deixamos o GC cuidar disso
+    private static final class Reader {
+        private final FileChannel channel;
+        private final ByteBuffer buffer = ByteBuffer.allocate(64 * 1024).order(ByteOrder.LITTLE_ENDIAN);
+        private long position;
+        Reader(FileChannel channel) { this.channel = channel; buffer.limit(0); }
+        long position() { return position; }
+        private void require(int count) throws IOException {
+            while (buffer.remaining() < count) {
+                buffer.compact();
+                int read = channel.read(buffer);
+                if (read < 0) throw new IOException("Fim prematuro do ficheiro GGUF na posicao " + position);
+                if (read == 0) continue;
+                buffer.flip();
+            }
+        }
+        int readInt() throws IOException { require(4); position += 4; return buffer.getInt(); }
+        long readLong() throws IOException { require(8); position += 8; return buffer.getLong(); }
+        short readShort() throws IOException { require(2); position += 2; return buffer.getShort(); }
+        int readByte() throws IOException { require(1); position++; return buffer.get() & 0xff; }
+        int readSignedByte() throws IOException { require(1); position++; return buffer.get(); }
+        byte[] readBytes(int length) throws IOException {
+            if (length < 0) throw new IOException("Comprimento GGUF negativo: " + length);
+            byte[] bytes = new byte[length];
+            int offset = 0;
+            while (offset < length) {
+                if (!buffer.hasRemaining()) { buffer.clear(); int read = channel.read(buffer); if (read < 0) throw new IOException("Fim prematuro de string GGUF"); buffer.flip(); }
+                int count = Math.min(buffer.remaining(), length - offset);
+                buffer.get(bytes, offset, count); offset += count; position += count;
+            }
+            return bytes;
+        }
+        String readString() throws IOException {
+            long length = readLong();
+            if (length < 0 || length > Integer.MAX_VALUE) throw new IOException("String GGUF demasiado longa: " + length);
+            return new String(readBytes((int) length), StandardCharsets.UTF_8);
+        }
+        Object readValue(int type, int depth) throws IOException {
+            if (depth > 8) throw new IOException("Arrays GGUF aninhados em excesso");
+            return switch (type) {
+                case 0 -> readByte();
+                case 1 -> readSignedByte();
+                case 2 -> Short.toUnsignedInt(readShort());
+                case 3 -> readShort();
+                case 4 -> Integer.toUnsignedLong(readInt());
+                case 5 -> readInt();
+                case 6 -> Float.intBitsToFloat(readInt());
+                case 7 -> { int v = readByte(); if (v > 1) throw new IOException("Booleano GGUF invalido: " + v); yield v != 0; }
+                case 8 -> readString();
+                case 9 -> {
+                    int elementType = readInt(); long count = readLong();
+                    if (count < 0 || count > Integer.MAX_VALUE) throw new IOException("Array GGUF demasiado grande: " + count);
+                    List<Object> values = new ArrayList<>((int) count);
+                    for (int i = 0; i < count; i++) values.add(readValue(elementType, depth + 1));
+                    yield Collections.unmodifiableList(values);
+                }
+                case 10, 11 -> readLong();
+                case 12 -> Double.longBitsToDouble(readLong());
+                default -> throw new IOException("Tipo de metadado GGUF desconhecido: " + type);
+            };
+        }
     }
 }
