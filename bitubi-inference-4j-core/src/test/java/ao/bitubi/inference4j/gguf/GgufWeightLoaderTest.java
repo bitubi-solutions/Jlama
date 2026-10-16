@@ -30,7 +30,7 @@ public class GgufWeightLoaderTest {
         assertEquals(-16f,tensor.get(0,0),0f);
         assertEquals(15f,tensor.get(0,31),0f);
         assertEquals(2f,tensor.get(1,0),0f);
-        FloatBufferTensor embedding=(FloatBufferTensor)loader.load("model.embed_tokens.weight");
+        Q8ByteBufferTensor embedding=(Q8ByteBufferTensor)loader.load("model.embed_tokens.weight");
         assertEquals(-16f,embedding.get(0,0),0f);
     }
 
