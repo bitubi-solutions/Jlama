@@ -125,6 +125,7 @@ public final class PanamaTensorOperations implements TensorOperations {
                     case ARM_128 -> new GemmerF32Q4_arm(K, a, b, result, aColumnOffset, bColumnOffset, rOffset);
                     default -> throw new UnsupportedOperationException(vectorType.name());
                 };
+                case I8 -> new GemmerF32Q8(K, a, b, result, aColumnOffset, bColumnOffset, rOffset);
                 default -> throw new UnsupportedOperationException(b.dType().name());
             };
             case I8 -> switch (b.dType()) {
@@ -144,6 +145,68 @@ public final class PanamaTensorOperations implements TensorOperations {
         };
 
         gemm.matmul(0, M, bRowOffset, bRowOffset + N);
+    }
+
+    private class GemmerF32Q8 extends Gemmer {
+        private final FloatBufferTensor a;
+        private final Q8ByteBufferTensor b;
+        private final VectorSpecies<Float> floats;
+        private final VectorSpecies<Byte> bytes;
+        private final BiIntConsumer dot;
+
+        GemmerF32Q8(int k, AbstractTensor ta, AbstractTensor tb, AbstractTensor c, int ith, int nth, int rOffset) {
+            super(k, ta, tb, c, ith, nth, rOffset);
+            this.a = (FloatBufferTensor) ta;
+            this.b = (Q8ByteBufferTensor) tb;
+            this.floats = switch (vectorType) {
+                case AVX_512 -> FloatVector.SPECIES_512;
+                case AVX_256 -> FloatVector.SPECIES_256;
+                case ARM_128 -> FloatVector.SPECIES_128;
+                default -> throw new UnsupportedOperationException(vectorType.name());
+            };
+            this.bytes = switch (vectorType) {
+                case AVX_512 -> ByteVector.SPECIES_128;
+                case AVX_256, ARM_128 -> ByteVector.SPECIES_64;
+                default -> throw new UnsupportedOperationException(vectorType.name());
+            };
+            this.dot = (i, j) -> {
+                if (bColumnOffset % Q8ByteBufferTensor.BLOCK_SIZE != 0) {
+                    float sum = 0f;
+                    for (int p = 0; p < k; p++) sum += a.get(i, aColumnOffset + p) * b.get(j, bColumnOffset + p);
+                    c.set(sum, i, j + rOffset);
+                    return;
+                }
+                FloatVector acc = FloatVector.zero(floats);
+                float tail = 0f;
+                int pos = 0;
+                while (pos < k) {
+                    int q8Offset = bColumnOffset + pos;
+                    int blockLength = Math.min(k - pos, Q8ByteBufferTensor.BLOCK_SIZE - (q8Offset % Q8ByteBufferTensor.BLOCK_SIZE));
+                    FloatVector scale = FloatVector.broadcast(floats, b.getFactorForIndex(j, q8Offset));
+                    int vectorEnd = pos + blockLength - (blockLength % bytes.length());
+                    for (int p = pos; p < vectorEnd; p += bytes.length()) {
+                        ByteVector q = b.getVector(bytes, j, bColumnOffset + p);
+                        for (int part = 0; part < bytes.length() / floats.length(); part++) {
+                            FloatVector av = a.getVector(floats, i, aColumnOffset + p + part * floats.length());
+                            FloatVector qv = (FloatVector) q.convertShape(VectorOperators.B2F, floats, part);
+                            acc = av.fma(qv.mul(scale), acc);
+                        }
+                    }
+                    float blockScale = b.getFactorForIndex(j, q8Offset);
+                    for (int p = vectorEnd; p < pos + blockLength; p++) {
+                        tail += a.get(i, aColumnOffset + p) * b.get(j, bColumnOffset + p) * blockScale;
+                    }
+                    pos += blockLength;
+                }
+                c.set(acc.reduceLanes(VectorOperators.ADD) + tail, i, j + rOffset);
+            };
+        }
+
+        @Override
+        protected int pickKernel(int m0, int m, int n0, int n) {
+            kernel(m0, m, 1, n0, n, 1, dot);
+            return (1 << 4) | 1;
+        }
     }
 
     private class GemmerF32Q4_256 extends Gemmer {
