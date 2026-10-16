@@ -68,6 +68,12 @@ Notas:
 - **Velocidade:** prefill = tokens do prompt por segundo; decode = tokens gerados por segundo.
 - **Ruído:** esta máquina varia muito entre sessões (uma hora antes o Panama media 24 e 8 tok/s). Compare só rodadas intercaladas na mesma sessão. Duas rodadas por backend dão a ordem de grandeza, não um intervalo de confiança.
 
+## Memória de modelos GGUF F16
+
+O loader GGUF alarga F16 para F32 em `ByteBuffer.allocateDirect`. O ficheiro Qwen2.5-0.5B F16 usado nesta fatia tem 1 266 425 696 bytes; os pesos alargados ocupam cerca de 2,53 GB de memória directa (sem contar KV cache e temporários). Com o limite directo padrão observado nesta máquina (~1,94 GB), o carregamento falhou; o smoke passou com `JAVA_TOOL_OPTIONS=-XX:MaxDirectMemorySize=4g`.
+
+Usar `Arena`/`MemorySegment` para alocar fora de `ByteBuffer` é tecnicamente possível, mas não é uma substituição pequena: hoje `FloatBufferTensor` cria o segmento a partir do `ByteBuffer`, e `AbstractModel.close()` fecha o KV cache, sem dono/vida útil partilhada para a memória dos pesos. Seria necessário introduzir propriedade e fecho da arena dos pesos e garantir que os tensores/views não sobrevivem ao modelo. Não foi implementado nem medido.
+
 ## Qual é o mais eficiente
 
 Entre os que funcionam: o **nativo**, neste hardware e neste modelo, no prefill (cerca de 2,4x) e na memória (cerca de 28% menos de RSS); no decode a vantagem é pequena e está dentro do ruído. O Panama continua o padrão por não depender de uma biblioteca compilada por sistema operacional.
