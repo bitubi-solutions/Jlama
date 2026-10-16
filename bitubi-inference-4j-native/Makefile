@@ -25,7 +25,26 @@
 SRC_DIR = src/main/c
 LIB = $(LIB_DIR)/$(LIB_NAME).$(LIB_EXT)
 
-SRCS = $(wildcard $(SRC_DIR)/*.c)
+# vector_simd.c fica no piso da arquitetura; cada kernel tem as suas flags.
+ARCH := $(shell uname -m)
+ifneq ($(filter x86_64 amd64,$(ARCH)),)
+ISA_UNITS ?= avx2 avxvnni avx512
+BASE_ISA_CFLAGS = -march=x86-64
+else ifneq ($(filter aarch64 arm64,$(ARCH)),)
+ISA_UNITS ?= neon
+BASE_ISA_CFLAGS = -march=armv8-a
+else
+$(error arquitetura nao suportada: $(ARCH))
+endif
+
+SRCS = $(SRC_DIR)/vector_simd.c $(ISA_UNITS:%=$(SRC_DIR)/kernels_%.c)
+
+# flags por ISA (alvos especificos: nao vazam para a unidade base)
+$(OBJ_DIR)/kernels_avx2.o:    ISA_CFLAGS = -mavx2 -mfma
+$(OBJ_DIR)/kernels_avxvnni.o: ISA_CFLAGS = -mavx2 -mfma -mavxvnni
+$(OBJ_DIR)/kernels_avx512.o:  ISA_CFLAGS = -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni
+$(OBJ_DIR)/kernels_neon.o:    ISA_CFLAGS = -march=armv8-a
+$(OBJ_DIR)/vector_simd.o:     ISA_CFLAGS = $(BASE_ISA_CFLAGS)
 
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
@@ -35,9 +54,9 @@ $(LIB): $(OBJS)
 	mkdir -p $(LIB_DIR)
 	$(AR) $(LDFLAGS) -o $(LIB) $^
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(wildcard $(SRC_DIR)/*.h $(SRC_DIR)/*.inc)
 	mkdir -p $(OBJ_DIR)
-	$(CC) -o $@ -c $< $(CFLAGS)
+	$(CC) -o $@ -c $< $(CFLAGS) $(ISA_CFLAGS)
 
 clean:
 	rm -rf $(LIB_DIR) $(OBJ_DIR)

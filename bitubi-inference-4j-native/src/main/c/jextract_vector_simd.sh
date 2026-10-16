@@ -1,10 +1,19 @@
 #!/bin/bash
+set -euo pipefail
 
-gcc -fPIC -O3 -march=native -shared -o libbi4j.so vector_simd.c
+MODULE_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$MODULE_DIR"
+LIB_DIR="$MODULE_DIR/target/jextract-native/lib"
+OBJ_DIR="$MODULE_DIR/target/jextract-native/obj"
+mkdir -p "$LIB_DIR"
+make -C "$MODULE_DIR" \
+  LIB_DIR="$LIB_DIR" OBJ_DIR="$OBJ_DIR" LIB_NAME=libbi4j LIB_EXT=so \
+  CC=gcc AR=gcc CFLAGS='-fPIC -O3 -Werror' LDFLAGS=-shared
+export LD_LIBRARY_PATH="$LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Generate Java source code
 /usr/local/jextract-20/bin/jextract --source \
-  --output ../java20 \
+  --output src/main/java20 \
   -t ao.bitubi.inference4j.tensor.operations.cnative \
   -I . \
   -l bi4j \
@@ -12,7 +21,7 @@ gcc -fPIC -O3 -march=native -shared -o libbi4j.so vector_simd.c
   vector_simd.h
 
 /usr/local/jextract-21/bin/jextract --source \
-  --output ../java21 \
+  --output src/main/java21 \
   -t ao.bitubi.inference4j.tensor.operations.cnative \
   -I . \
   -l bi4j \
@@ -20,7 +29,7 @@ gcc -fPIC -O3 -march=native -shared -o libbi4j.so vector_simd.c
   vector_simd.h
 
 /usr/local/jextract-22/bin/jextract \
-  --output ../java22 \
+  --output src/main/java22 \
   -t ao.bitubi.inference4j.tensor.operations.cnative \
   -I . \
   -l bi4j \
