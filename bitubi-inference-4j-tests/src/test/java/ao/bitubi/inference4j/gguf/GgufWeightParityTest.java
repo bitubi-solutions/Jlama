@@ -18,7 +18,7 @@ public class GgufWeightParityTest {
         GgufWeightLoader f=new GgufWeightLoader(new GgufFile(Path.of(reference)));
         for (Map.Entry<String,TensorInfo> entry : q.tensorInfoMap().entrySet()) {
             String name=entry.getKey();
-            if (!f.isWeightPresent(name)) continue;
+            assertTrue("Tensor ausente do GGUF F16: " + name,f.isWeightPresent(name));
             AbstractTensor actual=q.load(name), expected=f.load(name);
             assertEquals(name,expected.shape(),actual.shape());
             int rows=actual.shape().first(), cols=actual.shape().last();
@@ -26,7 +26,9 @@ public class GgufWeightParityTest {
                 float step=actual instanceof Q4ByteBufferTensor q4 ? Math.abs(q4.getFactorForIndex(r,c))
                     : actual instanceof Q8ByteBufferTensor q8 ? Math.abs(q8.getFactorForIndex(r,c)) : 0f;
                 float tolerance=step == 0f ? Math.abs(expected.get(r,c))*0.001f + 1e-6f : step*0.5001f + 1e-6f;
-                assertTrue(name+"["+r+","+c+"]",Math.abs(actual.get(r,c)-expected.get(r,c)) <= tolerance);
+                float difference=Math.abs(actual.get(r,c)-expected.get(r,c));
+                assertTrue(name+"["+r+","+c+"] actual="+actual.get(r,c)+" expected="+expected.get(r,c)+" step="+step+" diff="+difference,
+                    difference <= tolerance);
             }
         }
     }
