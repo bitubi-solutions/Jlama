@@ -49,7 +49,7 @@ public final class GgufFile {
             }
             Object alignmentValue = parsedMetadata.get("general.alignment");
             this.alignment = alignmentValue == null ? 32 : asInt(alignmentValue, "general.alignment");
-            if (alignment < 8 || (alignment & (alignment - 1)) != 0) throw new IOException("Alinhamento GGUF invalido: " + alignment);
+            if (alignment < 8 || alignment % 8 != 0) throw new IOException("Alinhamento GGUF invalido: " + alignment);
             this.metadata = Collections.unmodifiableMap(parsedMetadata);
             if (tensorCount > (fileSize - reader.position()) / 24) throw new IOException("Contagem de tensores GGUF inconsistente: " + tensorCount);
             List<RawTensor> rawTensors = new ArrayList<>((int) tensorCount);
@@ -101,7 +101,7 @@ public final class GgufFile {
     }
 
     private static long alignUp(long value, int alignment) {
-        return Math.addExact(value, alignment - 1) & -((long) alignment);
+        return Math.multiplyExact(Math.floorDiv(Math.addExact(value, alignment - 1), alignment), alignment);
     }
 
     public int getAlignment() { return alignment; }

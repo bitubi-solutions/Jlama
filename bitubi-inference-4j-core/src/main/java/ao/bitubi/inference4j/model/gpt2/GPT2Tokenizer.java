@@ -16,6 +16,7 @@
 package ao.bitubi.inference4j.model.gpt2;
 
 import ao.bitubi.inference4j.safetensors.tokenizer.BPETokenizer;
+import ao.bitubi.inference4j.safetensors.tokenizer.TokenizerModel;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import java.nio.charset.StandardCharsets;
@@ -59,6 +60,8 @@ public class GPT2Tokenizer extends BPETokenizer {
     public GPT2Tokenizer(Path modelPath) {
         super(modelPath);
     }
+
+    public GPT2Tokenizer(TokenizerModel model) { super(model); }
 
     @Override
     protected String preProcess(String sentence) {
