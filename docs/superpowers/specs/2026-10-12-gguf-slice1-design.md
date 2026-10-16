@@ -72,12 +72,18 @@ Configuração `Qwen2Config` a partir dos metadados: `qwen2.context_length`, `em
 
 1. **Leitor, sem rede:** um GGUF mínimo gerado pelo próprio teste (escritor de teste) cobre todos os tipos de metadados, arrays, strings, preenchimento de alinhamento e offsets de tensores; magic ou versão inválidos dão erro claro.
 2. **Paridade do tokenizer:** para um conjunto fixo de textos (ASCII, acentos, emoji, código, números, espaços e quebras de linha, marcadores do template de chat), os IDs do tokenizer GGUF são **idênticos** aos do tokenizer feito do `tokenizer.json` do mesmo modelo (`tjake/Qwen2.5-0.5B-Instruct-JQ4`). Diferença zero.
-3. **Paridade dos pesos:** os tensores do GGUF Q8_0 e Q4_0, desquantizados, ficam dentro do erro esperado da quantização em relação ao GGUF F16 (limite por bloco: meio passo de quantização), para todos os tensores.
+3. **Paridade dos pesos:** para todos os tensores Q8_0 e Q4_0 dos ficheiros reais, um descodificador de teste independente, lendo os blocos GGML crus, produz floats exatamente iguais aos tensores do `GgufWeightLoader`. A comparação com GGUF F16 é apenas estatística informativa (erro médio/máximo em passos, fração até meio passo e saturação), não é critério de falha.
 4. **Ponta a ponta:** com `qwen2.5-0.5b-instruct-fp16.gguf`, o prompt "What is the capital of France?" em temperatura 0 produz uma resposta contendo "Paris" e coerente; o Q8_0 produz o mesmo texto ou diverge só depois de um prefixo longo (registrar); o Q4_0 é coerente (registrar divergências). As referências de saída entram como `smoke-golden-gguf-*.txt`.
 5. **Sem regressão:** o teste de fumaça atual e a suíte existente continuam verdes; CI verde nos 4 sistemas.
 6. **Desempenho:** registrar tokens/s do GGUF F16, Q8_0 e Q4_0 no hardware do baseline. Não há meta numérica antes de medir.
 
 Os arquivos GGUF de teste (F16 1,27 GB, Q8_0 676 MB, Q4_0 429 MB) são baixados sob demanda e ficam fora do Git; os testes que dependem deles são opt-in por variável de ambiente, como o `SmokeTest`.
+
+### Revisão do critério de paridade Q4_0/Q8_0 (2026-10-16)
+
+O antigo limite universal de meio passo contra o GGUF F16 foi removido: não verifica o repack e não é válido para todos os quantizadores. O Q4_0 de referência do ggml escolhe `d = max / -8` com o máximo assinado, converte com `x / d + 8.5` e limita o resultado superior a 15; há saturação unilateral, cujo erro pode chegar a um passo. Ver [quantização Q4_0 de referência](https://github.com/ggml-org/llama.cpp/blob/master/ggml/src/ggml-quants.c#L2357-L2404). Uma divergência face a um GGUF F16 de referência também pode reflectir decisões de quantização distintas; a proveniência/imatrix dos ficheiros usados não foi confirmada.
+
+A prova do repack compara, em cada tensor quantizado, os floats carregados com um descodificador de teste independente dos bytes crus: Q4_0 lê half `d` e os 16 bytes de nibbles (índices `j` e `j+16`); Q8_0 lê half `d` e 32 int8. A igualdade é exata. No ficheiro Q4_0 testado, os 169 tensores Q4_0 (493 961 216 valores) e o tensor Q8_0 `output.weight` (136 134 656 valores) passaram após corrigir o endereçamento de blocos para índices grandes. A comparação informativa Q4_0/F16 teve média 0,24477 passos, máximo 1 passo, 99,4083% até meio passo; 10 179 596 valores foram identificados como saturados (máximo de 1 passo), enquanto os não saturados ficaram até meio passo. A comparação Q8_0/F16 no ficheiro Q8_0 teve média 0,24274 passos, máximo 0,67213 e 99,2894% até meio passo; não mostrou saturação Q4. A comparação Q8_0/F16 no ficheiro Q8_0 teve média 0,24274 passos, máximo 0,67213 e 99,2894% até meio passo; não mostrou saturação Q4.
 
 ## 7. Decisões do autor (2026-10-13) e achado de kernels
 
