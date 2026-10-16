@@ -127,8 +127,8 @@ public class Q8ByteBufferTensor extends AbstractTensor<ByteVector, Byte> {
     @Override
     protected AbstractTensor make(int offset, int length, TensorShape shape, boolean cacheSlices) {
         FloatBufferTensor newBlockF = (FloatBufferTensor) this.blockF.make(
-            (int) (offset * I_BLOCK_SIZE),
-            (int) (length * I_BLOCK_SIZE),
+            offset / BLOCK_SIZE,
+            length / BLOCK_SIZE,
             makeBlockShape(shape),
             cacheSlices
         );
@@ -139,9 +139,18 @@ public class Q8ByteBufferTensor extends AbstractTensor<ByteVector, Byte> {
     public float get(int... dims) {
         Preconditions.checkArgument(dims.length <= shape.dims(), "Too many dimensions specified");
         Preconditions.checkArgument(dims.length == shape.dims(), "Must specify all dimensions");
+        if (dims.length == 2 && !shape.isSparse()) return get(dims[0], dims[1]);
         int i = getOffset(dims);
         float d = blockF.get(makeBlockShape(dims));
         return b.get(i) * d;
+    }
+
+    @Override
+    public float get(int row, int column) {
+        Preconditions.checkArgument(shape.dims() == 2, "Must specify all dimensions");
+        if (shape.isSparse()) return get(new int[] { row, column });
+        int i = getOffset(row, column);
+        return b.get(i) * blockF.get(row, column / BLOCK_SIZE);
     }
 
     public final FloatBufferTensor getBlockF() {
@@ -149,7 +158,7 @@ public class Q8ByteBufferTensor extends AbstractTensor<ByteVector, Byte> {
     }
 
     public final float getFactorForIndex(int d, int i) {
-        int ix = (int) (i * I_BLOCK_SIZE);
+        int ix = i / BLOCK_SIZE;
         if (ix >= blockF.size()) throw new RuntimeException();
         return blockF.get(d, ix);
     }
