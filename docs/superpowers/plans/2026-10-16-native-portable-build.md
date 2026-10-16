@@ -47,7 +47,7 @@ O AVX-512 exige F, BW, DQ, VL e VNNI (Skylake-X sem VNNI usa o AVX2).
    piso; log da ISA escolhida.
 6. **Verificar.** `SmokeTest` nativo por ISA (`avx2`, `avxvnni`; `avx512` só compila), `TestNativeRemainderTiles`
    por ISA, `objdump` nas unidades, `clean package` completo (`-Dtest='!TestSample'`).
-7. **Desempenho.** Rodadas intercaladas, `-march=native` (baseline) contra a variante mais alta (`avxvnni` aqui).
+7. **Desempenho.** Nao medido: a maquina estava com carga elevada (load average acima de 5, com outros agentes a correr).
 8. **Documentar.** `docs/backends.md` (como mascarar, o que a CI tem de confirmar).
 
 ## O que não se consegue verificar nesta máquina
