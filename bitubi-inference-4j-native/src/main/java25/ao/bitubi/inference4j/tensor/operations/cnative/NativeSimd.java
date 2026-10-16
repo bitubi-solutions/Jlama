@@ -114,6 +114,61 @@ public class NativeSimd {
         return Q4_BLOCK_SIZE;
     }
 
+    private static final int BI4J_ISA_AVX2 = (int)1L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_AVX2 1
+     * }
+     */
+    public static int BI4J_ISA_AVX2() {
+        return BI4J_ISA_AVX2;
+    }
+    private static final int BI4J_ISA_NEON = (int)1L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_NEON 1
+     * }
+     */
+    public static int BI4J_ISA_NEON() {
+        return BI4J_ISA_NEON;
+    }
+    private static final int BI4J_ISA_AVXVNNI = (int)2L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_AVXVNNI 2
+     * }
+     */
+    public static int BI4J_ISA_AVXVNNI() {
+        return BI4J_ISA_AVXVNNI;
+    }
+    private static final int BI4J_ISA_AVX512 = (int)3L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_AVX512 3
+     * }
+     */
+    public static int BI4J_ISA_AVX512() {
+        return BI4J_ISA_AVX512;
+    }
+    private static final int BI4J_ISA_CAP_SHIFT = (int)8L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_CAP_SHIFT 8
+     * }
+     */
+    public static int BI4J_ISA_CAP_SHIFT() {
+        return BI4J_ISA_CAP_SHIFT;
+    }
+    private static final int BI4J_ISA_CAP_MASK = (int)15L;
+    /**
+     * {@snippet lang=c :
+     * #define BI4J_ISA_CAP_MASK 15
+     * }
+     */
+    public static int BI4J_ISA_CAP_MASK() {
+        return BI4J_ISA_CAP_MASK;
+    }
+
     private static class gemm_q8_q4 {
         public static final FunctionDescriptor DESC = FunctionDescriptor.ofVoid(
             NativeSimd.C_INT,
@@ -834,5 +889,54 @@ public class NativeSimd {
            throw new AssertionError("should not reach here", ex$);
         }
     }
-}
 
+    private static class bi4j_supported_isas {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(NativeSimd.C_INT);
+
+        public static final MemorySegment ADDR = NativeSimd.findOrThrow("bi4j_supported_isas");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int bi4j_supported_isas(void)
+     * }
+     */
+    public static int bi4j_supported_isas() {
+        var mh$ = bi4j_supported_isas.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("bi4j_supported_isas");
+            }
+            return (int)mh$.invokeExact();
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
+    private static class bi4j_selected_isa {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(NativeSimd.C_INT, NativeSimd.C_INT);
+
+        public static final MemorySegment ADDR = NativeSimd.findOrThrow("bi4j_selected_isa");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int bi4j_selected_isa(int flags)
+     * }
+     */
+    public static int bi4j_selected_isa(int flags) {
+        var mh$ = bi4j_selected_isa.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("bi4j_selected_isa", flags);
+            }
+            return (int)mh$.invokeExact(flags);
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+}

@@ -63,11 +63,12 @@ public class TestOperations {
             opTypes.add(new NativeSimdTensorOperations());
             opTypes.add(new NativeSimdTensorOperations(0));
 
-            if (MachineSpec.VECTOR_TYPE == MachineSpec.Type.AVX_512) opTypes.add(new NativeSimdTensorOperations(HAS_AVX2));
+            // every ISA variant this CPU can run (avx2, avxvnni, avx512...)
+            for (String isa : supportedIsas())
+                opTypes.add(new NativeSimdTensorOperations(capFlags(isa)));
 
             if (RuntimeSupport.isLinux() || RuntimeSupport.isWin()) {
                 opTypes.add(new NativeSimdTensorOperations(HAS_F16C));
-                if (MachineSpec.VECTOR_TYPE == MachineSpec.Type.AVX_512) opTypes.add(new NativeSimdTensorOperations(HAS_F16C | HAS_AVX2));
             }
 
             if (RuntimeSupport.isArm()) {
