@@ -54,17 +54,17 @@ Mudanças em código existente (mínimas):
 - `BPETokenizer` e `LlamaTokenizer`: construtor a partir de um `TokenizerModel` pronto (hoje só aceitam um `Path` com `tokenizer.json`).
 - `ModelSupport.loadModel`: se o arquivo termina em `.gguf`, usa o caminho GGUF (sem exigir `config.json`), escolhendo o `ModelType` por `general.architecture`.
 
-Tradução de nomes para `qwen2` (**a confirmar listando os tensores do arquivo real**): `model.embed_tokens.weight` = `token_embd.weight`; `model.norm.weight` = `output_norm.weight`; `lm_head.weight` = `output.weight` (ausente quando os embeddings são partilhados: usar `token_embd.weight`); por camada `N`: `self_attn.{q,k,v}_proj.{weight,bias}` = `blk.N.attn_{q,k,v}.{weight,bias}`, `self_attn.o_proj.weight` = `blk.N.attn_output.weight`, `mlp.gate_proj` / `up_proj` / `down_proj` = `blk.N.ffn_gate` / `ffn_up` / `ffn_down`, `input_layernorm` = `blk.N.attn_norm`, `post_attention_layernorm` = `blk.N.ffn_norm`.
+Tradução de nomes para `qwen2` (**a confirmar listando os tensores do arquivo real**): `model.embed_tokens.weight` = `token_embd.weight`; `model.norm.weight` = `output_norm.weight`; `lm_head.weight` = `output.weight` (se ausente, usar `token_embd.weight` apenas quando os embeddings são partilhados); por camada `N`: `self_attn.{q,k,v}_proj.{weight,bias}` = `blk.N.attn_{q,k,v}.{weight,bias}`, `self_attn.o_proj.weight` = `blk.N.attn_output.weight`, `mlp.gate_proj` / `up_proj` / `down_proj` = `blk.N.ffn_gate` / `ffn_up` / `ffn_down`, `input_layernorm` = `blk.N.attn_norm`, `post_attention_layernorm` = `blk.N.ffn_norm`.
 
 Configuração `Qwen2Config` a partir dos metadados: `qwen2.context_length`, `embedding_length`, `feed_forward_length`, `attention.head_count`, `attention.head_count_kv`, `block_count`, `attention.layer_norm_rms_epsilon`, `rope.freq_base`; vocabulário = tamanho de `tokenizer.ggml.tokens`; `bos`/`eos` dos IDs especiais (se `bos` faltar, usar o do `Config` do Qwen2 e documentar); ativação SiLU (fixa para a arquitetura, não está nos metadados).
 
 ## 5. Riscos conhecidos
 
-1. **Ordem das dimensões.** Provavelmente a dimensão mais interna vem primeiro (oposto do HF). Confirmar com um tensor real antes de escrever o `GgufRepack`; um erro aqui produz saída lixo sem exceção.
+1. **Ordem das dimensões.** Confirmado no Q4_0 real: GGML guarda a dimensão interna primeiro. Por exemplo, `blk.0.ffn_down.weight` tem `[4864,896]` no GGUF e a forma interna é `[896,4864]`. O loader inverte as dimensões.
 2. **Tokenizer.** O Qwen2 usa BPE ao nível de byte com um pré-tokenizador por regex; os metadados trazem `tokenizer.ggml.pre`, não o regex. Tem de reproduzir exatamente o do `tokenizer.json`. Mitigação: teste de paridade (secção 6).
 3. **Tokens especiais.** Os de controlo (`token_type = 3`, ex.: `<|im_start|>`) têm de virar *added tokens* para o texto do template de chat ser segmentado igual.
 4. **Template de chat.** Vem em `tokenizer.chat_template` (Jinja); tem de entrar no `PromptSupport` como o do `tokenizer_config.json`.
-5. **Embeddings partilhados.** O Qwen2.5-0.5B não tem `output.weight`.
+5. **Embeddings partilhados.** A inspeção do ficheiro Q4_0 real `Qwen/Qwen2.5-0.5B-Instruct-GGUF` encontrou `output.weight` Q8_0 e `token_embd.weight` Q4_0; manter o fallback para variantes com pesos partilhados.
 6. **Arquivos grandes.** `ByteBuffer` limita a 2 GB; mapear por tensor (os do 0.5B são pequenos, mas o desenho não pode assumir isso).
 7. **Falso positivo de correção.** Um modelo pequeno pode "responder bem" por acaso; por isso a verificação compara contra referências, não só olha o texto.
 
