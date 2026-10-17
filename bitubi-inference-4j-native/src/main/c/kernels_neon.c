@@ -277,8 +277,8 @@ static void gemm_bf16_128_arm(int m0, int m, int n0, int n, int RM, int RN, stru
                     float32x4_t va1 = vreinterpretq_f32_u32(vshlq_n_u32(va1i, 16));
 
                     // Multiply and accumulate
-                    sums[ni][mi] = vmlaq_f32(sums[ni][mi], va0, vb0);
-                    sums[ni][mi] = vmlaq_f32(sums[ni][mi], va1, vb1);
+                    sums[mi][ni] = vmlaq_f32(sums[mi][ni], va0, vb0);
+                    sums[mi][ni] = vmlaq_f32(sums[mi][ni], va1, vb1);
                 }
             }
         }

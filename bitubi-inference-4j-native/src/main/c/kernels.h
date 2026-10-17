@@ -16,7 +16,7 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 static inline short fp32_to_bf16(float s) {
-    char bf;
+    uint16_t bf;
     union {
         float f;
         uint32_t i;

@@ -42,9 +42,9 @@ static void __attribute__((noinline)) gemm_q8_q4_512(int m0, int m, int n0, int 
                      __m256 ablock = _mm256_loadu_ps(params.af + (params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)));
                      __m256 bblock = _mm256_loadu_ps(params.bf + (params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)));
                      __m256 scaled = _mm256_mul_ps(ablock, bblock);
-                     _mm256_store_ps(scalef, scaled);
+                     _mm256_storeu_ps(scalef, scaled);
 
-                    for(int j = 0; j < 8; j++, ao += 32, bo += 16) {
+                    for(int j = 0; j < 8 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
                         // Load 16 bytes into 2 128-bit integer registers
                         __m256i int_va1 = _mm256_loadu_si256((__m256i const*)(params.a + params.lda * (ii + mi) + ao));
                         __m256i int_va0 = _mm256_sign_epi8(int_va1, int_va1);

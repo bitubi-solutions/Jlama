@@ -43,9 +43,9 @@ static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int 
                      __m256 ablock = _mm256_loadu_ps(params.af + (params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)));
                      __m256 bblock = _mm256_loadu_ps(params.bf + (params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)));
                      __m256 scaled = _mm256_mul_ps(ablock, bblock);
-                     _mm256_store_ps(scalef, scaled);
+                     _mm256_storeu_ps(scalef, scaled);
 
-                    for(int j = 0; j < 8; j++, ao += 32, bo += 16) {
+                    for(int j = 0; j < 8 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
                         // Load 16 bytes into 2 128-bit integer registers
                         __m256i int_va1 = _mm256_loadu_si256((__m256i const*)(params.a + params.lda * (ii + mi) + ao));
                         __m256i int_va0 = _mm256_sign_epi8(int_va1, int_va1);
@@ -79,7 +79,7 @@ static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int 
             for (int mi = 0; mi < RM; ++mi) {
 
                 __attribute__((aligned(64))) float result[8];
-                _mm256_store_ps(result, sums[ni][mi]);
+                _mm256_storeu_ps(result, sums[ni][mi]);
 
                 float dot = 0.0;
                 for(int i = 0; i < 8; ++i) {
@@ -133,7 +133,7 @@ static void __attribute__((noinline)) gemm_f32_256(int m0, int m, int n0, int n,
             for (int mi = 0; mi < RM; ++mi) {
                 // Horizontal sum of the vector to get dot product
                 float result[8] __attribute__((aligned(64)));
-                _mm256_store_ps(result, sums[ni][mi]);
+                _mm256_storeu_ps(result, sums[ni][mi]);
 
                 float dot = 0.0;
                 for(int i = 0; i < 8; ++i) {
@@ -241,7 +241,7 @@ static void gemm_f32_q4_256(int m0, int m, int n0, int n, int RM, int RN, struct
             for (int ni = 0; ni < RN; ++ni) {
                 // Horizontal sum of the vector to get dot product
                 __attribute__((aligned(16))) float result[8];
-                _mm256_store_ps(result, sums[mi][ni]);
+                _mm256_storeu_ps(result, sums[mi][ni]);
 
                 float dot = 0.0;
                 for(int i = 0; i < 8; ++i) {
@@ -317,7 +317,7 @@ static void __attribute__((noinline)) gemm_bf16_256(int m0, int m, int n0, int n
         for (int ni = 0; ni < RN; ++ni) {
             for (int mi = 0; mi < RM; ++mi) {
                 // Horizontal sum of the vector to get dot product
-                _mm256_store_ps(result, sums[ni][mi]);
+                _mm256_storeu_ps(result, sums[ni][mi]);
 
                 float dot = 0.0;
                 for(int i = 0; i < 8; ++i) {
@@ -384,7 +384,7 @@ static void __attribute__((noinline)) gemm_f32_bf16_256(int m0, int m, int n0, i
         for (int ni = 0; ni < RN; ++ni) {
             for (int mi = 0; mi < RM; ++mi) {
                 // Horizontal sum of the vector to get dot product
-                _mm256_store_ps(result, sums[ni][mi]);
+                _mm256_storeu_ps(result, sums[ni][mi]);
 
                 float dot = 0.0;
                 for(int i = 0; i < 8; ++i) {
