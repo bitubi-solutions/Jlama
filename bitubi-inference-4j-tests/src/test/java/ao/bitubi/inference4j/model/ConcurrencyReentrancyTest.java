@@ -18,7 +18,6 @@ package ao.bitubi.inference4j.model;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import ao.bitubi.inference4j.model.functions.Generator;
 import ao.bitubi.inference4j.safetensors.DType;
 import ao.bitubi.inference4j.safetensors.SafeTensorSupport;
 import ao.bitubi.inference4j.safetensors.prompt.PromptContext;
@@ -55,12 +54,23 @@ public class ConcurrencyReentrancyTest {
 
     private static final int MAX_TOKENS = 48;
     private static AbstractModel model;
+    private static final String[] seqOutputs = new String[PROMPTS.length];
 
     @BeforeClass
     public static void setUp() throws Exception {
         Assume.assumeTrue("CONCURRENCY_TEST=1 required", "1".equals(System.getenv("CONCURRENCY_TEST")));
         File dir = SafeTensorSupport.maybeDownloadModel("./models", "tjake/Qwen2.5-0.5B-Instruct-JQ4");
         model = ModelSupport.loadModel(dir, DType.F32, DType.I8);
+        for (int i = 0; i < PROMPTS.length; i++) {
+            seqOutputs[i] = generate(UUID.randomUUID(), i);
+            assertFalse("Sequential output was blank for prompt: " + PROMPTS[i], seqOutputs[i].isBlank());
+            logger.info("Sequential output for prompt [{}]: {}", i, seqOutputs[i].trim());
+        }
+    }
+
+    private static String generate(UUID session, int promptIdx) {
+        PromptContext ctx = model.promptSupport().get().builder().addUserMessage(PROMPTS[promptIdx]).build();
+        return model.generate(session, ctx, 0.0f, MAX_TOKENS, (s, f) -> {}).responseText;
     }
 
     @Before
@@ -70,15 +80,6 @@ public class ConcurrencyReentrancyTest {
 
     @Test
     public void parallelGenerationsWithDistinctSessionsMatchSequential() throws Exception {
-        String[] seqOutputs = new String[PROMPTS.length];
-        for (int i = 0; i < PROMPTS.length; i++) {
-            PromptContext ctx = model.promptSupport().get().builder().addUserMessage(PROMPTS[i]).build();
-            Generator.Response r = model.generate(UUID.randomUUID(), ctx, 0.0f, MAX_TOKENS, (s, f) -> {});
-            assertFalse("Sequential output was blank for prompt: " + PROMPTS[i], r.responseText.isBlank());
-            seqOutputs[i] = r.responseText;
-            logger.info("Sequential output for prompt [{}]: {}", i, r.responseText.trim());
-        }
-
         int parallelRuns = 5;
         List<String> divergences = new ArrayList<>();
         ExecutorService executor = Executors.newFixedThreadPool(PROMPTS.length);
@@ -93,10 +94,7 @@ public class ConcurrencyReentrancyTest {
                     futures.add(executor.submit(() -> {
                         readyLatch.countDown();
                         startLatch.await();
-                        UUID session = UUID.randomUUID();
-                        PromptContext ctx = model.promptSupport().get().builder().addUserMessage(PROMPTS[promptIdx]).build();
-                        Generator.Response r = model.generate(session, ctx, 0.0f, MAX_TOKENS, (s, f) -> {});
-                        return r.responseText;
+                        return generate(UUID.randomUUID(), promptIdx);
                     }));
                 }
 
@@ -132,15 +130,13 @@ public class ConcurrencyReentrancyTest {
             Future<String> f1 = executor.submit(() -> {
                 readyLatch.countDown();
                 startLatch.await();
-                PromptContext ctx = model.promptSupport().get().builder().addUserMessage(PROMPTS[0]).build();
-                return model.generate(sharedSession, ctx, 0.0f, MAX_TOKENS, (s, f) -> {}).responseText;
+                return generate(sharedSession, 0);
             });
 
             Future<String> f2 = executor.submit(() -> {
                 readyLatch.countDown();
                 startLatch.await();
-                PromptContext ctx = model.promptSupport().get().builder().addUserMessage(PROMPTS[1]).build();
-                return model.generate(sharedSession, ctx, 0.0f, MAX_TOKENS, (s, f) -> {}).responseText;
+                return generate(sharedSession, 1);
             });
 
             assertTrue("Timeout waiting for threads to be ready", readyLatch.await(30, TimeUnit.SECONDS));
@@ -166,6 +162,9 @@ public class ConcurrencyReentrancyTest {
                 r1 != null ? r1.trim() : null, t1 != null ? t1.toString() : "none");
             logger.info("Thread 2 (prompt '{}'): output=[{}], exception={}", PROMPTS[1],
                 r2 != null ? r2.trim() : null, t2 != null ? t2.toString() : "none");
+            // Documents the behaviour only: sharing a session concurrently is not a supported contract.
+            logger.info("Same session: thread 1 matches sequential={}, thread 2 matches sequential={}",
+                seqOutputs[0].equals(r1), seqOutputs[1].equals(r2));
         } finally {
             executor.shutdownNow();
         }
