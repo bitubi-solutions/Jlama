@@ -54,7 +54,8 @@ jobs:
           path: |
             hs_err_pid*.log
             **/target/surefire-reports/
-  # Performance snapshot (informational)
+      - name: Performance snapshot (informational)
+        if: always()
         run: |
           docs/benchmarks/run-perf.sh "$JAVA_HOME" | tee perf.txt
           { echo '### Desempenho em ${{ matrix.os }}'; echo '```'; cat perf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
