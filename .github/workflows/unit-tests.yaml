@@ -41,11 +41,20 @@ jobs:
           key: models-qwen2.5-0.5b-jq4-tinyllama-q4
       # TestSample baixa modelos de varios GB e e excluido da CI.
       - name: Compile, run tests, and package (JDK 25)
+        id: build
         env:
           SMOKE_MODEL: "1"
           SMOKE_RELAXED: "1" # a referencia de texto foi gravada em outro hardware: aqui so exige texto nao vazio
         run: ./mvnw -B package '-Dtest=!TestSample' -Dsurefire.failIfNoSpecifiedTests=false
-      - name: Performance snapshot (informational)
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-diagnostics-${{ matrix.os }}
+          path: |
+            hs_err_pid*.log
+            **/target/surefire-reports/
+  # Performance snapshot (informational)
         run: |
           docs/benchmarks/run-perf.sh "$JAVA_HOME" | tee perf.txt
           { echo '### Desempenho em ${{ matrix.os }}'; echo '```'; cat perf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
