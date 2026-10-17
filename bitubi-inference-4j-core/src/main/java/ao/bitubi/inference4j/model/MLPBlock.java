@@ -42,7 +42,6 @@ public class MLPBlock implements FeedForward {
 
     private final ActivationFunction.Type activationFunction;
 
-    private final AbstractTensor[] batchResults;
     private final AbstractTensor[] batchWeights;
 
     public MLPBlock(
@@ -91,7 +90,6 @@ public class MLPBlock implements FeedForward {
         this.projectionBias = projectionBias;
         this.projectionWeights = projectionWeights;
         this.upProjectionWeights = upProjectionWeights;
-        this.batchResults = new AbstractTensor[2];
         this.batchWeights = new AbstractTensor[] { fullyConnectedWeights, upProjectionWeights };
     }
 
@@ -105,8 +103,8 @@ public class MLPBlock implements FeedForward {
             AbstractTensor buf2 = model.makeTensor(batchSize, hiddenLength)
         ) {
 
-            batchResults[0] = buf;
-            batchResults[1] = buf2;
+            // Local per call: a shared field would be overwritten by concurrent requests on the same model
+            AbstractTensor[] batchResults = new AbstractTensor[] { buf, buf2 };
 
             VectorMath.pchunk(dctx.hiddenSegmentStart, dctx.hiddenSegmentLength, (chunkStart, chunkSize) -> {
                 if (upProjectionWeights != null) {
