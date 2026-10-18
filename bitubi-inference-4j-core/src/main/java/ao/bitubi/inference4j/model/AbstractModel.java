@@ -38,8 +38,10 @@ import ao.bitubi.inference4j.util.JsonSupport;
 import com.google.common.base.Preconditions;
 import com.google.common.primitives.Ints;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -548,6 +550,7 @@ public abstract class AbstractModel implements Generator {
             int tokensGenerated;
             StringBuilder responseText = new StringBuilder();
             StringBuilder responseTextWithSpecialTokens = new StringBuilder();
+            ByteArrayOutputStream pendingBytes = new ByteArrayOutputStream(); // bytes of a character split between tokens
 
             try (AbstractTensor logits = makeDenseTensor(c.vocabularySize)) {
                 int[] promptTokens;
@@ -580,7 +583,7 @@ public abstract class AbstractModel implements Generator {
                 int next = sample(last.slice(last.shape().first() - 1), temperature, ThreadLocalRandom.current().nextFloat(), logits);
                 last.close();
                 try {
-                    String c = tokenizer.decode(next);
+                    String c = decodeToken(tokenizer, next, pendingBytes);
                     if (tokenizer.getModel().isSpecialToken(next)) {
                         responseTextWithSpecialTokens.append(c);
                     } else {
@@ -611,7 +614,7 @@ public abstract class AbstractModel implements Generator {
                     }
 
                     try {
-                        String c = tokenizer.decode(next);
+                        String c = decodeToken(tokenizer, next, pendingBytes);
 
                         if (tokenizer.getModel().isSpecialToken(next)) {
                             responseTextWithSpecialTokens.append(c);
@@ -649,6 +652,32 @@ public abstract class AbstractModel implements Generator {
                 return postProcessResponse(promptContext, response);
             }
         }
+    }
+
+    /**
+     * Text of a generated token. Byte-level tokenizers can split a UTF-8 character across tokens, so the bytes of
+     * incomplete characters are kept in {@code pending} and come out with the token that completes them.
+     */
+    static String decodeToken(Tokenizer tokenizer, long id, ByteArrayOutputStream pending) {
+        Optional<byte[]> bytes = tokenizer.getModel().isSpecialToken(id) ? Optional.empty() : tokenizer.decodeBytes(id);
+        if (bytes.isEmpty()) return tokenizer.decode(id);
+
+        pending.writeBytes(bytes.get());
+        byte[] all = pending.toByteArray();
+
+        // Hold back a trailing incomplete sequence: a lead byte (11xxxxxx) followed by too few continuation bytes
+        int end = all.length;
+        for (int i = all.length - 1, back = 1; i >= 0 && back <= 3; i--, back++) {
+            int b = Byte.toUnsignedInt(all[i]);
+            if ((b & 0xC0) == 0x80) continue; // continuation byte, keep looking for its lead byte
+            int needed = b >= 0xF0 ? 4 : b >= 0xE0 ? 3 : b >= 0xC0 ? 2 : 1;
+            if (needed > all.length - i) end = i;
+            break;
+        }
+
+        pending.reset();
+        pending.write(all, end, all.length - end);
+        return new String(all, 0, end, StandardCharsets.UTF_8);
     }
 
     /**

@@ -67,6 +67,9 @@ public class ConcurrencyReentrancyTest {
             seqOutputs[i] = generate(UUID.randomUUID(), i);
             assertFalse("Sequential output was blank for prompt: " + PROMPTS[i], seqOutputs[i].isBlank());
             logger.info("Sequential output for prompt [{}]: {}", i, seqOutputs[i].trim());
+            logger.info("Code points for prompt [{}]: {}", i, seqOutputs[i].trim().codePoints().mapToObj(c -> String.format("U+%04X", c)).collect(java.util.stream.Collectors.joining(" ")));
+            // UTF-8 bytes shown as Latin-1 ('Ã' followed by a character in U+0080..U+00BF) mean a decoding bug
+            assertFalse("Mojibake in response text: " + seqOutputs[i], seqOutputs[i].matches("(?s).*\\u00C3[\\u0080-\\u00BF].*"));
         }
     }
 
