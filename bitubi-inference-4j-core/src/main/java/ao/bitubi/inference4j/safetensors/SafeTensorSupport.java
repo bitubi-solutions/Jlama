@@ -288,7 +288,7 @@ public class SafeTensorSupport {
         Files.copy(modelRoot.resolve("tokenizer.json"), qPath.resolve("tokenizer.json"));
         Files.copy(modelRoot.resolve("README.md"), qPath.resolve("README.md"));
 
-        // Copy README.md and add jlama header
+        // Copy README.md and add the bi4j header
         addBi4jHeader(baseDirName, qPath.resolve("README.md"));
 
         if (Files.exists(modelRoot.resolve("tokenizer_config.json"))) Files.copy(
