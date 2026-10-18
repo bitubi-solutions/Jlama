@@ -41,6 +41,7 @@ import com.google.common.primitives.Ints;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -97,6 +98,7 @@ public abstract class AbstractModel implements Generator {
     protected Optional<PoolingLayer> poolingLayer;
     protected TransformerBlock[] transformerBlocks;
     protected KvBufferCache kvBufferCache;
+    private final Set<UUID> activeSessions = ConcurrentHashMap.newKeySet();
 
     protected AbstractModel(
         InferenceType inferenceType,
@@ -502,6 +504,22 @@ public abstract class AbstractModel implements Generator {
 
     @Override
     public Response generate(
+        UUID sessionId,
+        PromptContext promptContext,
+        float temperature,
+        int ntokens,
+        BiConsumer<String, Float> onTokenWithTimings
+    ) {
+        // Concurrent requests on one session would share its KV cache: reject the later one, never wait for it.
+        if (!activeSessions.add(sessionId)) throw new SessionBusyException(sessionId);
+        try {
+            return generateOnSession(sessionId, promptContext, temperature, ntokens, onTokenWithTimings);
+        } finally {
+            activeSessions.remove(sessionId);
+        }
+    }
+
+    private Response generateOnSession(
         UUID sessionId,
         PromptContext promptContext,
         float temperature,
