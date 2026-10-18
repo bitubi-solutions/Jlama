@@ -163,6 +163,7 @@
                 --enable-native-access=ALL-UNNAMED
                 --add-exports java.base/jdk.internal.vm.vector=ALL-UNNAMED
                 -Djava.library.path=../bitubi-inference-4j-native/target/native-lib-only
+                -Dnet.bytebuddy.experimental=true
                 </argLine>
               </configuration>
             </execution>
