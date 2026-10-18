@@ -320,7 +320,9 @@ repository that depends on `jlama-core:0.8.4` and `jlama-net:0.8.4` from Maven C
 the model classes, `JlamaServiceGrpc.JlamaServiceBlockingStub` and `JlamaService`, uses the `X-Jlama-Session`
 literal, a `.properties` file with `jlama.*` keys and a shell script with `-Djlama.*` and `JLAMA_JVM_ARGS_EXTRA`.
 The dependency coordinates, imports, class names, literal, property keys and script flags were rewritten as
-described. Not covered by that run: `.yaml` property keys, the `jlama-native` and `jlama-cli` dependencies and
+described, and the migrated project compiled (JDK 25) against `bitubi-inference-4j-core` and `-net` built from this
+repository (`0.1.0-SNAPSHOT`, installed into a scratch local repository), which confirms the new class names exist.
+Not covered by that run: `.yaml` property keys, the `jlama-native` and `jlama-cli` dependencies and
 `JsonSupport.JlamaPrettyPrinter` (rules written from the code, not exercised).
 
 ## Roadmap: LangChain4j
