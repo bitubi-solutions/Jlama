@@ -180,7 +180,7 @@ static const struct bi4j_kernels *const tables[] = { NULL, &bi4j_kernels_neon };
 #endif
 
 int bi4j_supported_isas(void) {
-    static atomic_int cached = ATOMIC_VAR_INIT(0); // zero significa ainda nao calculado
+    static atomic_int cached = 0; /* ATOMIC_VAR_INIT is deprecated in C17 and removed in C23 */ // zero significa ainda nao calculado
     int value = atomic_load_explicit(&cached, memory_order_relaxed);
     if (value == 0) {
         int detected = detect_isas() + 1;
