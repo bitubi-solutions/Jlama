@@ -15,6 +15,7 @@
  */
 package ao.bitubi.inference4j.model;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -119,54 +121,58 @@ public class ConcurrencyReentrancyTest {
             + String.join("\n", divergences), divergences.isEmpty());
     }
 
+    /**
+     * Two requests released together on the same session: exactly one must finish with the correct output and
+     * the other must be rejected with {@link SessionBusyException}. The session must stay usable afterwards.
+     */
     @Test
-    public void concurrentGenerationsWithSameSessionId() throws Exception {
+    public void concurrentGenerationsWithSameSessionAreRejected() throws Exception {
         UUID sharedSession = UUID.randomUUID();
         ExecutorService executor = Executors.newFixedThreadPool(2);
+        int winner;
         try {
             CountDownLatch readyLatch = new CountDownLatch(2);
             CountDownLatch startLatch = new CountDownLatch(1);
-
-            Future<String> f1 = executor.submit(() -> {
-                readyLatch.countDown();
-                startLatch.await();
-                return generate(sharedSession, 0);
-            });
-
-            Future<String> f2 = executor.submit(() -> {
-                readyLatch.countDown();
-                startLatch.await();
-                return generate(sharedSession, 1);
-            });
-
+            List<Future<String>> futures = new ArrayList<>();
+            for (int p = 0; p < 2; p++) {
+                final int promptIdx = p;
+                futures.add(executor.submit(() -> {
+                    readyLatch.countDown();
+                    startLatch.await();
+                    return generate(sharedSession, promptIdx);
+                }));
+            }
             assertTrue("Timeout waiting for threads to be ready", readyLatch.await(30, TimeUnit.SECONDS));
             startLatch.countDown();
 
-            String r1 = null;
-            String r2 = null;
-            Throwable t1 = null;
-            Throwable t2 = null;
-            try {
-                r1 = f1.get(120, TimeUnit.SECONDS);
-            } catch (Throwable t) {
-                t1 = t;
+            int succeeded = 0;
+            int rejected = 0;
+            winner = -1;
+            for (int p = 0; p < 2; p++) {
+                try {
+                    String out = futures.get(p).get(120, TimeUnit.SECONDS);
+                    succeeded++;
+                    winner = p;
+                    assertEquals("Winning request must produce the sequential output", seqOutputs[p], out);
+                } catch (ExecutionException e) {
+                    assertTrue("Unexpected failure: " + e.getCause(), e.getCause() instanceof SessionBusyException);
+                    assertTrue(e.getCause().getMessage().contains(sharedSession.toString()));
+                    rejected++;
+                }
             }
-            try {
-                r2 = f2.get(120, TimeUnit.SECONDS);
-            } catch (Throwable t) {
-                t2 = t;
-            }
-
-            logger.info("=== Same session observation (shared UUID: {}) ===", sharedSession);
-            logger.info("Thread 1 (prompt '{}'): output=[{}], exception={}", PROMPTS[0],
-                r1 != null ? r1.trim() : null, t1 != null ? t1.toString() : "none");
-            logger.info("Thread 2 (prompt '{}'): output=[{}], exception={}", PROMPTS[1],
-                r2 != null ? r2.trim() : null, t2 != null ? t2.toString() : "none");
-            // Documents the behaviour only: sharing a session concurrently is not a supported contract.
-            logger.info("Same session: thread 1 matches sequential={}, thread 2 matches sequential={}",
-                seqOutputs[0].equals(r1), seqOutputs[1].equals(r2));
+            logger.info("Same session: succeeded={}, rejected={}, winner prompt={}", succeeded, rejected, winner);
+            assertEquals("Exactly one request must succeed", 1, succeeded);
+            assertEquals("Exactly one request must be rejected", 1, rejected);
         } finally {
             executor.shutdownNow();
         }
+
+        // The rejection must not have corrupted the session: a follow-up turn must equal the same two turns on a
+        // fresh session that never saw a rejection.
+        int followUp = 1 - winner;
+        UUID reference = UUID.randomUUID();
+        generate(reference, winner);
+        String expectedFollowUp = generate(reference, followUp);
+        assertEquals("Follow-up on the rejected session must match a clean session", expectedFollowUp, generate(sharedSession, followUp));
     }
 }
