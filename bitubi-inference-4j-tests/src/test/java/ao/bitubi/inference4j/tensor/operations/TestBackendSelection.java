@@ -31,29 +31,41 @@ public class TestBackendSelection {
 
     @Test
     public void autoPicksPanamaWhenVectorsExist() {
-        assertEquals(PANAMA, resolveBackend(null, false, MachineSpec.Type.AVX_256));
-        assertEquals(PANAMA, resolveBackend("auto", false, MachineSpec.Type.AVX_512));
-        assertEquals(PANAMA, resolveBackend("", false, MachineSpec.Type.ARM_128));
+        assertEquals(PANAMA, resolveBackend(null, MachineSpec.Type.AVX_256));
+        assertEquals(PANAMA, resolveBackend("auto", MachineSpec.Type.AVX_512));
+        assertEquals(PANAMA, resolveBackend("", MachineSpec.Type.ARM_128));
     }
 
     @Test
     public void explicitChoiceIsHonoredAndCaseInsensitive() {
-        assertEquals(PANAMA, resolveBackend("PANAMA", false, MachineSpec.Type.AVX_256));
-        assertEquals(NATIVE, resolveBackend("Native", false, MachineSpec.Type.AVX_256));
+        assertEquals(PANAMA, resolveBackend("PANAMA", MachineSpec.Type.AVX_256));
+        assertEquals(NATIVE, resolveBackend("Native", MachineSpec.Type.AVX_256));
     }
 
     @Test
-    public void legacyNativeFlagStillSelectsNativeWhenBackendIsAuto() {
-        assertEquals(NATIVE, resolveBackend(null, true, MachineSpec.Type.AVX_256));
-        // an explicit backend wins over the legacy flag
-        assertEquals(PANAMA, resolveBackend("panama", true, MachineSpec.Type.AVX_256));
+    public void onlyTheBackendPropertyChoosesNative() {
+        assertEquals(PANAMA, resolveBackend(null, MachineSpec.Type.AVX_256));
+        assertEquals(NATIVE, resolveBackend("native", MachineSpec.Type.AVX_256));
+    }
+
+    @Test
+    public void theRemovedNativeFlagDoesNotSelectNative() {
+        System.setProperty("bi4j.use_native_tensor_operations", "true");
+        System.setProperty("jlama.use_native_tensor_operations", "true");
+        try {
+            assertEquals(PANAMA, resolveBackend(null, MachineSpec.Type.AVX_256));
+            assertEquals(PANAMA, resolveBackend("auto", MachineSpec.Type.AVX_256));
+        } finally {
+            System.clearProperty("bi4j.use_native_tensor_operations");
+            System.clearProperty("jlama.use_native_tensor_operations");
+        }
     }
 
     @Test
     public void withoutTheVectorApiAutoAndPanamaFailWithActionableMessage() {
         for (String requested : new String[] { null, "auto", "panama" }) {
             try {
-                resolveBackend(requested, false, MachineSpec.Type.NONE);
+                resolveBackend(requested, MachineSpec.Type.NONE);
                 fail("expected IllegalArgumentException for " + requested);
             } catch (IllegalArgumentException e) {
                 assertTrue(e.getMessage(), e.getMessage().contains("jdk.incubator.vector"));
@@ -64,7 +76,7 @@ public class TestBackendSelection {
     @Test
     public void theNaiveBackendNoLongerExists() {
         try {
-            resolveBackend("naive", false, MachineSpec.Type.AVX_256);
+            resolveBackend("naive", MachineSpec.Type.AVX_256);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("Valid values: auto, panama, native."));
@@ -74,7 +86,7 @@ public class TestBackendSelection {
     @Test
     public void unknownBackendListsTheValidOnes() {
         try {
-            resolveBackend("gpu", false, MachineSpec.Type.AVX_256);
+            resolveBackend("gpu", MachineSpec.Type.AVX_256);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             String m = e.getMessage();
