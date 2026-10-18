@@ -67,7 +67,7 @@ static void __attribute__((noinline)) gemm_q8_q4_128_arm(int m0, int m, int n0, 
                         sums[mi][ni] = vmlaq_n_f32(sums[mi][ni], vcvtq_f32_s32(dot), scalef[j]);
 #else
                         int dot = 0;
-                        const signed char *qa = params.a + params.lda * (ii + mi) + ao;
+                        const signed char *qa = (const signed char *)(params.a + params.lda * (ii + mi) + ao);
                         const unsigned char *qb = (const unsigned char *)params.b + params.ldb * (jj + ni) + bo;
                         for (int q = 0; q < 16; ++q) {
                             dot += qa[q] * ((qb[q] & 0x0f) - 8);
