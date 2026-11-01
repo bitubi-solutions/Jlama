@@ -22,6 +22,24 @@ java -Dbi4j.backend=panama ...      # auto (padrão) | panama | native
 - Uma escolha explícita que não pode ser atendida falha com mensagem que diz o que fazer: `auto` e `panama` sem a Vector API ativa pedem `--add-modules=jdk.incubator.vector`; `native` sem o módulo no classpath pede o artefato; um nome desconhecido lista os válidos.
 - O backend em uso aparece no log (`Using Panama Vector Operations (OffHeap)`) e na linha `PERF` do teste de desempenho.
 
+## Variantes do nativo
+
+Em x86-64, a biblioteca contém uma unidade base x86-64 sem instruções AVX e unidades separadas AVX2+FMA, AVX-VNNI e AVX-512+VNNI. O runtime consulta CPUID e o estado AVX do sistema operativo (`XGETBV`) antes de escolher a variante. AVX2+FMA é o mínimo para executar o backend nativo. Sem a flag antiga `use_native_tensor_operations`, `auto` continua a escolher Panama quando a Vector API está disponível; pedir `native` (ou activar a flag antiga) numa CPU abaixo do piso regista um aviso no log e usa Panama.
+
+`bi4j.native.isa` limita a variante máxima escolhida, para executar uma variante mais baixa na mesma máquina:
+
+```bash
+java -Dbi4j.backend=native -Dbi4j.native.isa=avx2 ...
+java -Dbi4j.backend=native -Dbi4j.native.isa=avxvnni ...
+java -Dbi4j.backend=native -Dbi4j.native.isa=auto ...
+```
+
+Valores aceites: `auto`, `avx2`, `avxvnni`, `avx512`; em ARM64, `neon` e `neon-dotprod`. Um limite acima do suportado selecciona a variante mais alta disponível abaixo desse limite e deixa um aviso no log. A lista da CPU aparece no log ao criar o backend. Em ARM64, a unidade base é NEON; dotprod/i8mm ainda não têm variantes independentes.
+
+No Linux x86-64, `check-isa.sh` usa `objdump` para exigir todos os objectos, confirmar que a unidade base não contém VEX/EVEX, que AVX2 não contém AVX-VNNI/AVX-512, que AVX-VNNI não contém AVX-512 e que as unidades avançadas contêm as instruções esperadas. A variante AVX-512 é compilada e inspeccionada em CPUs sem AVX-512, mas não deve ser executada nelas.
+
+Na CI, confirmar em Linux x86-64 o `check-isa.sh`, `TestNativeRemainderTiles`, `TestOperations` e `SmokeTest` com cada ISA executável. Confirmar também build, `TestOperations` e smoke nativo em Windows x86-64, macOS Intel e macOS ARM64; em ARM64 verificar que a NEON base compila sem dotprod e que os kernels produzem a saída de referência.
+
 ## Por que o nativo dava resposta errada (causa-raiz, verificada)
 
 **Não era o JDK 25.** O driver de blocos do GEMM, em C (`gemm`, em `vector_simd.c`) e a cópia dele em Java
@@ -80,7 +98,7 @@ Entre os que funcionam: o **nativo**, neste hardware e neste modelo, no prefill 
 
 ## Antes de tornar o nativo o padrão
 
-1. **`-march=native` no Linux** (`bitubi-inference-4j-native/pom.xml`): a biblioteca é compilada para a CPU de quem compila. Um JAR gerado na CI pode terminar com `SIGILL` em CPUs mais antigas, o que contradiz o foco em hardware antigo. É preciso compilar para uma base fixa (por exemplo AVX2) e escolher as variantes mais novas em tempo de execução.
+1. **Portabilidade entre CPUs:** o módulo nativo passou a compilar a base x86-64 sem AVX e a escolher kernels AVX2+FMA, AVX-VNNI e AVX-512+VNNI por CPUID. O piso do backend nativo é AVX2+FMA; em CPUs abaixo dele o pedido de `native` cai em Panama, com um aviso no log. `check-isa.sh` verifica os objectos x86 no build Linux.
 2. **Apple Silicon e Windows:** o nativo foi medido só em Linux x86.
 3. **Cobertura de testes:** `TestOperations` só inclui o nativo quando ele é o backend ativo; agora há também `TestNativeRemainderTiles`, que o executa sempre.
 4. **Carga do modelo:** o nativo demorou mais a carregar (4,5 s contra 2,9 s); causa não investigada.

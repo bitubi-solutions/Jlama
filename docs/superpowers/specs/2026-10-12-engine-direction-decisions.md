@@ -64,7 +64,8 @@ Mudança: sobrecargas sem variádicos (`getOffset(i, j)`, `getVector(species, i,
 
 - **Provado:** a pressão de alocação de `int[]` no kernel caiu de 87% para 5% (JFR). Os testes por operação, os blocos de borda, a seleção de backend e o teste de fumaça (saída igual à referência) passam: 28 testes, 0 falhas.
 - **Não provado:** o efeito em velocidade. Dois A/B (4 e depois 4 amostras) deram resultados contraditórios (os "depois" saíram piores, 12 contra 17 a 31 tok/s) mas num hospedeiro com carga média de 8 a 12 em 16 CPUs, com a carga do modelo a variar de 4 s a 18 s. Não permitem concluir nada, nem a favor nem contra. Repetir numa máquina calma, em cópias compiladas lado a lado, alternando antes e depois.
-- Decisão: **não integrar como otimização até haver o A/B**; fica no ramo como experimento.
+- Terceiro A/B (2026-10-16, 3 rodadas alternadas de cada lado, só Panama): **inconclusivo por ruído** (load de 5,4 a 10,7; medianas de prefill 13,99 antes e 11,57 depois, faixas sobrepostas).
+- Decisão do autor (2026-10-18): **o `d5504cf` fica como refactor**, porque o GGUF e outras branches já usam as sobrecargas de dois inteiros. Não é apresentado como otimização: o efeito em tok/s **não está medido**. O ganho de alocação (87% para 5% de `int[]`) é o único efeito provado.
 
 ## 7. Direção do produto (hipóteses a validar, não fatos)
 
