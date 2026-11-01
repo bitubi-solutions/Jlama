@@ -39,6 +39,10 @@ import ao.bitubi.inference4j.model.mixtral.MixtralConfig;
 import ao.bitubi.inference4j.model.mixtral.MixtralModel;
 import ao.bitubi.inference4j.model.qwen2.Qwen2Config;
 import ao.bitubi.inference4j.model.qwen2.Qwen2Model;
+import ao.bitubi.inference4j.gguf.GgufConfigFactory;
+import ao.bitubi.inference4j.gguf.GgufFile;
+import ao.bitubi.inference4j.gguf.GgufTokenizerFactory;
+import ao.bitubi.inference4j.gguf.GgufWeightLoader;
 import ao.bitubi.inference4j.safetensors.Config;
 import ao.bitubi.inference4j.safetensors.DType;
 import ao.bitubi.inference4j.safetensors.SafeTensorSupport;
@@ -156,6 +160,25 @@ public class ModelSupport {
         }
 
         File baseDir = model.isFile() ? model.getParentFile() : model;
+
+        if (model.isFile() && model.getName().toLowerCase(Locale.ROOT).endsWith(".gguf")) {
+            try {
+                threadCount.ifPresent(PhysicalCoreExecutor::overrideThreadCount);
+                GgufFile gguf = new GgufFile(model.toPath());
+                if (!"qwen2".equals(gguf.getMetadata().get("general.architecture")))
+                    throw new IllegalArgumentException("Arquitetura GGUF nao suportada: " + gguf.getMetadata().get("general.architecture"));
+                Config c = GgufConfigFactory.create(gguf.getMetadata());
+                distributedContextLoader.ifPresent(loader -> c.setDistributedContext(loader.apply(c)));
+                c.setWorkingDirectory(workingDirectory);
+                Tokenizer t = new GPT2Tokenizer(GgufTokenizerFactory.create(gguf.getMetadata()));
+                WeightLoader wl = new GgufWeightLoader(gguf);
+                return Qwen2Model.class.getConstructor(AbstractModel.InferenceType.class, Config.class, WeightLoader.class,
+                    Tokenizer.class, DType.class, DType.class, Optional.class)
+                    .newInstance(inferenceType, c, wl, t, workingMemoryType, workingQuantizationType, modelQuantization);
+            } catch (IOException | NoSuchMethodException | InvocationTargetException | InstantiationException | IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        }
 
         // Find config
         if (!baseDir.isDirectory()) {

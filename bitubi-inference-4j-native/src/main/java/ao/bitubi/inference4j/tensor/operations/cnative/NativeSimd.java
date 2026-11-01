@@ -64,6 +64,30 @@ public class NativeSimd {
         return (int) 32L;
     }
 
+    public static int BI4J_ISA_AVX2() {
+        return 1;
+    }
+
+    public static int BI4J_ISA_NEON() {
+        return 1;
+    }
+
+    public static int BI4J_ISA_AVXVNNI() {
+        return 2;
+    }
+
+    public static int BI4J_ISA_AVX512() {
+        return 3;
+    }
+
+    public static int BI4J_ISA_CAP_SHIFT() {
+        return 8;
+    }
+
+    public static int BI4J_ISA_CAP_MASK() {
+        return 15;
+    }
+
     /**
      * {@snippet :
      * void gemm_q8_q4(int flags, float* af, char* a, int aoffset, float* bf, char* b, int boffset, float* r, int roffset, int m, int n0, int n, int k, int lda, int ldaf, int ldb, int ldbf, int ldc);
@@ -322,6 +346,14 @@ public class NativeSimd {
         int ldb,
         int ldc
     ) {
+        throw new UnsupportedOperationException("Not implemented for this JDK version");
+    }
+
+    public static int bi4j_supported_isas() {
+        throw new UnsupportedOperationException("Not implemented for this JDK version");
+    }
+
+    public static int bi4j_selected_isa(int flags) {
         throw new UnsupportedOperationException("Not implemented for this JDK version");
     }
 }

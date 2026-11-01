@@ -53,7 +53,6 @@ public class CausalSelfAttention {
     private final float attentionScale;
     private final int attentionLength;
 
-    private final AbstractTensor[] qkvResults;
     private final AbstractTensor[] qkvWeights;
 
     public CausalSelfAttention(
@@ -133,7 +132,6 @@ public class CausalSelfAttention {
 
         this.attentionScale = c.attentionMultiplier != null ? c.attentionMultiplier : (float) (1.0 / StrictMath.sqrt(c.headSize));
 
-        this.qkvResults = new AbstractTensor[3];
         this.qkvWeights = new AbstractTensor[] { queryAttnWeights, keyAttnWeights, valueAttnWeights };
     }
 
@@ -165,9 +163,8 @@ public class CausalSelfAttention {
                         .dotProductChunk(tmpValBatch, input, valueAttnWeights, 0, c.embeddingLength, chunkStart, chunkLength);
                 });
             } else {
-                qkvResults[0] = queryBatch;
-                qkvResults[1] = tmpKeyBatch;
-                qkvResults[2] = tmpValBatch;
+                // Local per call: a shared field would be overwritten by concurrent requests on the same model
+                AbstractTensor[] qkvResults = new AbstractTensor[] { queryBatch, tmpKeyBatch, tmpValBatch };
 
                 // compute the query vector
                 VectorMath.pchunk(dctx.attentionSegmentStart, dctx.attentionSegmentLength, (chunkStart, chunkLength) -> {

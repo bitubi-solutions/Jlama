@@ -22,9 +22,12 @@ import ao.bitubi.inference4j.tensor.Q8ByteBufferTensor;
 import ao.bitubi.inference4j.tensor.operations.cnative.NativeSimd;
 import ao.bitubi.inference4j.tensor.operations.util.JarSupport;
 import ao.bitubi.inference4j.tensor.operations.util.MemorySegmentSupport;
+import ao.bitubi.inference4j.util.Bi4jProperties;
 import ao.bitubi.inference4j.util.MachineSpec;
 import ao.bitubi.inference4j.util.RuntimeSupport;
 import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,35 +39,66 @@ public class NativeSimdTensorOperations implements TensorOperations {
     }
 
     public static final int HAS_F16C = NativeSimd.HAS_F16C();
-    public static final int HAS_AVX2 = NativeSimd.HAS_AVX2();
 
     // Operations that are not GEMMs (accumulate, saxpy, scale, quantize) run on the Java Vector API
     private static final TensorOperations delegate = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
 
     final int flags;
 
+    /**
+     * Picks the best ISA this CPU supports, capped by {@code -Dbi4j.native.isa=auto|avx2|avxvnni|avx512} (or
+     * {@code neon|neon-dotprod} on ARM64). The cap exists to test every variant on a single machine.
+     */
     public NativeSimdTensorOperations() {
-        int f = 0;
-
-        if (RuntimeSupport.isLinux()) f |= HAS_F16C;
-
-        if (MachineSpec.VECTOR_TYPE == MachineSpec.Type.AVX_512) f |= HAS_AVX2;
-
-        this.flags = f;
-        checkLib();
+        this(capFlags(Bi4jProperties.getString("native.isa")) | (RuntimeSupport.isLinux() ? HAS_F16C : 0));
     }
 
     NativeSimdTensorOperations(int flags) {
         this.flags = flags;
+        int level = NativeSimd.bi4j_selected_isa(flags);
+        if (level == 0) throw new UnsupportedOperationException(
+            "bitubi-inference-4j-native needs AVX2 + FMA (x86-64) or NEON (ARM64); this CPU has neither"
+        );
+        int cap = (flags >> NativeSimd.BI4J_ISA_CAP_SHIFT()) & NativeSimd.BI4J_ISA_CAP_MASK();
+        if (cap > level) logger.warn("bi4j.native.isa={} is not supported by this CPU; using {}", isaName(cap), isaName(level));
+        logger.info("Native ISA: {} (this CPU supports {})", isaName(level), supportedIsas());
+    }
+
+    /** Name of an ISA level: 1 = avx2 (neon on ARM64), 2 = avxvnni (neon-dotprod on ARM64), 3 = avx512. */
+    static String isaName(int level) {
+        if (RuntimeSupport.isArm()) return switch (level) {
+            case 1 -> "neon";
+            case 2 -> "neon-dotprod";
+            default -> "none";
+        };
+        return switch (level) {
+            case 1 -> "avx2";
+            case 2 -> "avxvnni";
+            case 3 -> "avx512";
+            default -> "none";
+        };
+    }
+
+    /** The ISAs this CPU (and OS) can run, lowest first. Needs the native library. */
+    public static List<String> supportedIsas() {
+        int mask = NativeSimd.bi4j_supported_isas();
+        List<String> out = new ArrayList<>();
+        for (int level = 1; level <= NativeSimd.BI4J_ISA_AVX512(); level++)
+            if ((mask & (1 << level)) != 0) out.add(isaName(level));
+        return out;
+    }
+
+    /** The {@code flags} bits that cap the ISA at {@code isa}; "auto", empty or null means no cap. */
+    static int capFlags(String isa) {
+        if (isa == null || isa.isBlank() || isa.equalsIgnoreCase("auto")) return 0;
+        for (int level = 1; level <= NativeSimd.BI4J_ISA_AVX512(); level++)
+            if (isaName(level).equalsIgnoreCase(isa.trim())) return level << NativeSimd.BI4J_ISA_CAP_SHIFT();
+        throw new IllegalArgumentException("Unknown bi4j.native.isa '" + isa + "'; valid: auto, avx2, avxvnni, avx512, neon, neon-dotprod");
     }
 
     @Override
     public String name() {
         return "Native SIMD Operations";
-    }
-
-    private void checkLib() {
-        // Check if the native library is loaded
     }
 
     public int parallelSplitSize() {
@@ -183,6 +217,8 @@ public class NativeSimdTensorOperations implements TensorOperations {
                             result.getStride()
                         );
                         break;
+                    case I8:
+                        throw new UnsupportedOperationException("F32xQ8 nao e suportado pelo backend nativo; selecione -Dbi4j.backend=panama");
                     default:
                         throw new UnsupportedOperationException(at.dType().name() + " " + bt.dType().name());
                 }

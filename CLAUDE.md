@@ -17,9 +17,8 @@ Spec e plano: `docs/superpowers/specs/` e `docs/superpowers/plans/`. Ordem dos s
 - JDK 25 é o mínimo e único alvo de build, teste e execução. Bytecode fica em 21 até o upgrade do
   Spring (o Spring Boot 3.3 não lê classes versão 69).
 - **Panama (Vector API) é a implementação padrão.** O backend se escolhe com `-Dbi4j.backend=auto|panama|native`
-  (ver `docs/backends.md`). O nativo nunca é escolhido sozinho: dava resposta errada por um defeito no
-  cálculo dos blocos de borda do GEMM (corrigido em C e em Java; não era o JDK 25) e ainda é compilado com
-  `-march=native`, não portável entre CPUs.
+  (ver `docs/backends.md`). O nativo nunca é escolhido sozinho. É compilado por ISA com
+  seleção em tempo de execução (`-Dbi4j.native.isa`); numa CPU abaixo do piso cai em Panama com um aviso no log.
 - Fase de fundação: nenhuma mudança de comportamento do motor.
 - **DX é requisito do produto inteiro** (SDK, API, UI, CLI, harness, deploy, docs). Cada componente tem
   revisão própria quando chegar a sua vez; por enquanto só a intenção está registada em
