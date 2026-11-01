@@ -37,12 +37,7 @@ public class MoEBlock implements FeedForward {
     private final AbstractTensor fullyConnectedWeights[];
     private final AbstractTensor projectionWeights[];
     private final AbstractTensor upProjectionWeights[];
-    private final FloatBufferTensor expertResults;
-    private final int[] selectedExperts;
     private final ActivationFunction.Type activationFunction;
-
-    private final AbstractTensor[] batchResults;
-    private final AbstractTensor[] batchWeights;
 
     public MoEBlock(
         AbstractModel model,
@@ -63,10 +58,6 @@ public class MoEBlock implements FeedForward {
         this.fullyConnectedWeights = fullyConnectedWeights;
         this.projectionWeights = projectionWeights;
         this.upProjectionWeights = upProjectionWeights;
-        this.expertResults = new FloatBufferTensor(numberOfExperts);
-        this.selectedExperts = new int[numberOfExpertsPerToken];
-        this.batchResults = new AbstractTensor[2];
-        this.batchWeights = new AbstractTensor[2];
     }
 
     @Override
@@ -75,6 +66,9 @@ public class MoEBlock implements FeedForward {
 
         int hiddenLength = model.c.hiddenLength;
         AbstractTensor result = model.makeTensor(batchSize, model.c.embeddingLength);
+        // Per-call scratch state: shared fields would be overwritten by concurrent requests on the same model
+        FloatBufferTensor expertResults = new FloatBufferTensor(numberOfExperts);
+        int[] selectedExperts = new int[numberOfExpertsPerToken];
 
         try (
             AbstractTensor buf = model.makeTensor(1, hiddenLength);
@@ -95,15 +89,15 @@ public class MoEBlock implements FeedForward {
 
                 // Pick the top experts for this token
                 VectorMath.softMax(expertResults, 0, numberOfExperts);
-                topk(expertResults);
+                topk(expertResults, selectedExperts);
 
                 // Apply the selected experts to the input
                 for (int i = 0; i < numberOfExpertsPerToken; i++) {
-                    batchWeights[0] = fullyConnectedWeights[selectedExperts[i]];
-                    batchWeights[1] = upProjectionWeights[selectedExperts[i]];
+                    AbstractTensor[] batchWeights = new AbstractTensor[] {
+                        fullyConnectedWeights[selectedExperts[i]],
+                        upProjectionWeights[selectedExperts[i]] };
                     AbstractTensor projectionWeight = projectionWeights[selectedExperts[i]];
-                    batchResults[0] = buf;
-                    batchResults[1] = buf2;
+                    AbstractTensor[] batchResults = new AbstractTensor[] { buf, buf2 };
 
                     VectorMath.pchunk(dctx.hiddenSegmentStart, dctx.hiddenSegmentLength, (chunkStart, chunkSize) -> {
                         TensorOperationsProvider.get()
@@ -148,7 +142,7 @@ public class MoEBlock implements FeedForward {
         }
     }
 
-    private int[] topk(FloatBufferTensor probs) {
+    private int[] topk(FloatBufferTensor probs, int[] selectedExperts) {
         long length = probs.size();
         for (int i = 0; i < numberOfExpertsPerToken; i++) {
             selectedExperts[i] = i;
