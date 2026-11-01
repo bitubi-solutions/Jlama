@@ -1,0 +1,393 @@
+/* Kernels de 256 bits (AVX2 + FMA). Incluido por kernels_avx2.c e kernels_avxvnni.c; nao compilar sozinho. */
+#include <immintrin.h>
+
+static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int n, int RM, int RN, struct gemm_params params) {
+    int ytiles = (m - m0) / RM;
+    int xtiles = (n - n0) / RN;
+    int tiles = xtiles * ytiles;
+    // Mask to keep the first 4 bits of each byte
+    __m256i mask_first_4bits = _mm256_set1_epi8(0xF);
+    //Subtract 8 from each byte to get signed values
+    __m256i eight = _mm256_set1_epi8(8);
+    int numBlocks = params.k / Q4_BLOCK_SIZE;
+
+    // This fits on the stack (max of 5x5)
+    for (int job = 0; job < tiles; ++job) {
+
+        int ii = m0 + job / xtiles * RM;
+        int jj = n0 + job % xtiles * RN;
+
+        __attribute__((aligned(64))) __m256 sums[RN][RM];
+
+        //Reset the sums to zero for this tile
+        for (int i = 0; i < RN; i++) {
+            for (int j = 0; j < RM; j++) {
+                sums[i][j] = _mm256_setzero_ps();
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            int ao = params.aoffset;
+            int bo = params.boffset;
+
+            for (int i = 0; i < numBlocks; i += 8) { //256bits == 8floats
+                int aoo = ao;
+                int boo = bo;
+
+                for (int mi = 0; mi < RM; ++mi) {
+                    ao = aoo;
+                    bo = boo;
+
+                    for(int j = 0; j < 8 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
+                        // Load 16 bytes into 2 128-bit integer registers
+                        __m256i int_va1 = _mm256_loadu_si256((__m256i const*)(params.a + params.lda * (ii + mi) + ao));
+                        __m256i int_va0 = _mm256_sign_epi8(int_va1, int_va1);
+
+                        // Load 8 bytes into a 128-bit integer register
+                        __m128i int_vb0 = _mm_loadu_si128((__m128i const*)(params.b + params.ldb * (jj + ni) + bo)); // Load 128 bits
+
+                        __m256i vb0 = _mm256_and_si256(mask_first_4bits,
+                                                       _mm256_insertf128_si256(_mm256_castsi128_si256(int_vb0),
+                                                                               _mm_srli_epi16(int_vb0, 4), 1));
+
+                        vb0 = _mm256_sign_epi8(_mm256_sub_epi8(vb0, eight), int_va1);
+
+                        #if defined(__AVXVNNI__)
+                        __m256i res = _mm256_dpbusd_avx_epi32(_mm256_setzero_si256(), int_va0, vb0);
+#else
+                        __m256i res = _mm256_madd_epi16(_mm256_set1_epi16(1), _mm256_maddubs_epi16(int_va0, vb0));
+#endif
+                        __m256 resf = _mm256_cvtepi32_ps(res);
+
+                        // broadcast the float32 version of 'factor' to all elements
+                        __m256 scale_f32 = _mm256_set1_ps(params.af[params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)] * params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)]);
+
+                        sums[ni][mi] = _mm256_fmadd_ps(scale_f32, resf, sums[ni][mi]);
+                    }
+                }
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            for (int mi = 0; mi < RM; ++mi) {
+
+                __attribute__((aligned(64))) float result[8];
+                _mm256_storeu_ps(result, sums[ni][mi]);
+
+                float dot = 0.0;
+                for(int i = 0; i < 8; ++i) {
+                    dot += result[i];
+                }
+                //int idx = (params.ldc * (ii + mi)) + (jj + ni);
+                //if (idx > params.roffset)
+                //    fprintf(stderr, "ii: %d, ni: %d, jj: %d, mi: %d, ldc: %d, idx: %d, lim: %d\n", ii, ni, jj, mi, params.ldc,  idx, params.roffset);
+                params.r[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = dot;
+            }
+        }
+    }
+}
+
+static void __attribute__((noinline)) gemm_f32_256(int m0, int m, int n0, int n, int RM, int RN, struct gemm_params params) {
+    int ytiles = (m - m0) / RM;
+    int xtiles = (n - n0) / RN;
+    int tiles = xtiles * ytiles;
+
+    // This fits on the stack (max of 5x5)
+    __m256 sums[RN][RM] __attribute__((aligned(64)));
+
+    for (int job = 0; job < tiles; ++job) {
+        int ii = m0 + job / xtiles * RM;
+        int jj = n0 + job % xtiles * RN;
+
+        //Reset the sums to zero for this tile
+        for (int i = 0; i < RN; i++) {
+            for (int j = 0; j < RM; j++) {
+                sums[i][j] = _mm256_setzero_ps();
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            int ao = params.aoffset;
+            int bo = params.boffset;
+            for(int j = 0; j < params.k; j += 8, ao += 8, bo += 8) { // 256bits == 8floats
+                // Load float32
+                __m256 vb = _mm256_loadu_ps(params.bf + params.ldb * (jj + ni) + bo);
+
+                for (int mi = 0; mi < RM; ++mi) {
+                    __m256 va = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao);
+
+                    // Multiply and accumulate
+                    sums[ni][mi] = _mm256_fmadd_ps(va, vb, sums[ni][mi]);
+                }
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            for (int mi = 0; mi < RM; ++mi) {
+                // Horizontal sum of the vector to get dot product
+                float result[8] __attribute__((aligned(64)));
+                _mm256_storeu_ps(result, sums[ni][mi]);
+
+                float dot = 0.0;
+                for(int i = 0; i < 8; ++i) {
+                    dot += result[i];
+                }
+                params.r[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = dot;
+            }
+        }
+    }
+}
+
+static void gemm_f32_q4_256(int m0, int m, int n0, int n, int RM, int RN, struct gemm_params params) {
+    int ytiles = (m - m0) / RM;
+    int xtiles = (n - n0) / RN;
+    int tiles = xtiles * ytiles;
+    // Mask to keep the first 4 bits of each byte
+    __m128i mask_first_4bits = _mm_set1_epi8(0xF);
+    //Subtract 8 from each byte to get signed values
+    __m128i eight = _mm_set1_epi8(8);
+
+    // This fits on the stack (max of 5x5)
+    __m256 sums[RM][RN];
+
+    for (int job = 0; job < tiles; ++job) {
+        int ii = m0 + job / xtiles * RM;
+        int jj = n0 + job % xtiles * RN;
+
+        //Reset the sums to zero for this tile
+        for (int i = 0; i < RM; i++) {
+            for (int j = 0; j < RN; j++) {
+                sums[i][j] = _mm256_setzero_ps();
+            }
+        }
+
+        for(int ni = 0; ni < RN; ++ni) {
+            int ao = params.aoffset;
+            int bo = params.boffset;
+
+            for(int j = 0; j < params.k; j += 32, ao += 32, bo += 16) {
+                for (int mi = 0; mi < RM; ++mi) {
+                        // Load float32
+                        __m256 va0 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao);
+                        __m256 va1 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao + 8);
+                        __m256 va2 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao + 8 + 8);
+                        __m256 va3 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao + 8 + 8 + 8);
+
+                        // Load float32
+                        float bfactor = params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)];
+
+                        // broadcast the float32 version of 'factor' to all elements
+                        __m256 vb_f32 = _mm256_set1_ps(bfactor);
+
+                        // Load 8 bytes into a 128-bit integer register
+                        __m128i int_vb0 = _mm_loadl_epi64((__m128i const*)(params.b + params.ldb * (jj + ni) + bo)); // Load lower 64 bits
+                        __m128i int_vb1 = _mm_loadl_epi64((__m128i const*)(params.b + params.ldb * (jj + ni) + bo + 8)); // Load lower 64 bits
+
+                        // Masked values
+                        __m128i first_4bits0 = _mm_and_si128(int_vb0, mask_first_4bits);
+                        __m128i first_4bits1 = _mm_and_si128(int_vb1, mask_first_4bits);
+
+                        // Shift first 4 bits to rightmost positions
+                        __m128i last_4bits0 = _mm_srli_epi16(int_vb0, 4);
+                        __m128i last_4bits1 = _mm_srli_epi16(int_vb1, 4);
+
+                        last_4bits0 = _mm_and_si128(last_4bits0, mask_first_4bits);
+                        last_4bits1 = _mm_and_si128(last_4bits1, mask_first_4bits);
+
+                        //Subtract 8 from each int
+                        first_4bits0 = _mm_sub_epi8(first_4bits0, eight);
+                        first_4bits1 = _mm_sub_epi8(first_4bits1, eight);
+
+                        last_4bits0 = _mm_sub_epi8(last_4bits0, eight);
+                        last_4bits1 = _mm_sub_epi8(last_4bits1, eight);
+
+                        // Extend these bytes to 32-bit integers (low and high)
+                        __m256i int_vb_ext_lo0 = _mm256_cvtepi8_epi32(first_4bits0);
+                        __m256i int_vb_ext_lo1 = _mm256_cvtepi8_epi32(first_4bits1);
+
+                        __m256i int_vb_ext_hi0 = _mm256_cvtepi8_epi32(last_4bits0);
+                        __m256i int_vb_ext_hi1 = _mm256_cvtepi8_epi32(last_4bits1);
+
+                        // Convert these 32-bit integers to floats
+                        __m256 float_vb_lo0 = _mm256_cvtepi32_ps(int_vb_ext_lo0);
+                        __m256 float_vb_lo1 = _mm256_cvtepi32_ps(int_vb_ext_lo1);
+
+                        __m256 float_vb_hi0 = _mm256_cvtepi32_ps(int_vb_ext_hi0);
+                        __m256 float_vb_hi1 = _mm256_cvtepi32_ps(int_vb_ext_hi1);
+
+                        // Perform the scaling
+                        __m256 vb_scaled_lo0 = _mm256_mul_ps(vb_f32, float_vb_lo0);
+                        __m256 vb_scaled_lo1 = _mm256_mul_ps(vb_f32, float_vb_lo1);
+                        __m256 vb_scaled_hi0 = _mm256_mul_ps(vb_f32, float_vb_hi0);
+                        __m256 vb_scaled_hi1 = _mm256_mul_ps(vb_f32, float_vb_hi1);
+
+                        // Multiply and accumulate
+                        sums[mi][ni] = _mm256_fmadd_ps(va0, vb_scaled_lo0, sums[mi][ni]);
+                        sums[mi][ni] = _mm256_fmadd_ps(va1, vb_scaled_lo1, sums[mi][ni]);
+                        sums[mi][ni] = _mm256_fmadd_ps(va2, vb_scaled_hi0, sums[mi][ni]);
+                        sums[mi][ni] = _mm256_fmadd_ps(va3, vb_scaled_hi1, sums[mi][ni]);
+                }
+            }
+        }
+
+        for (int mi = 0; mi < RM; ++mi) {
+            for (int ni = 0; ni < RN; ++ni) {
+                // Horizontal sum of the vector to get dot product
+                __attribute__((aligned(16))) float result[8];
+                _mm256_storeu_ps(result, sums[mi][ni]);
+
+                float dot = 0.0;
+                for(int i = 0; i < 8; ++i) {
+                    dot += result[i];
+                }
+                //if (params.roffset > 0)
+                //    fprintf(stderr, "ii: %d, ni: %d, jj: %d, mi: %d, ldc: %d, roffset: %d\n", ii, ni, jj, mi, params.ldc, params.roffset);
+                params.r[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = dot;
+            }
+        }
+    }
+}
+
+static void __attribute__((noinline)) gemm_bf16_256(int m0, int m, int n0, int n, int RM, int RN, struct gemm_params params) {
+    int ytiles = (m - m0) / RM;
+    int xtiles = (n - n0) / RN;
+    int tiles = xtiles * ytiles;
+
+    float result[8] __attribute__((aligned(32)));
+
+    // This fits on the stack (max of 5x5)
+    __m256 sums[RN][RM];
+
+    for (int job = 0; job < tiles; ++job) {
+        int ii = m0 + job / xtiles * RM;
+        int jj = n0 + job % xtiles * RN;
+
+        //Reset the sums to zero for this tile
+        for (int i = 0; i < RN; i++) {
+            for (int j = 0; j < RM; j++) {
+                sums[i][j] = _mm256_setzero_ps();
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            int ao = params.aoffset;
+            int bo = params.boffset;
+            for(int j = 0; j < params.k; j += 16, ao += 16, bo +=16) { // 256bits == 16bfloats
+                // Load shorts
+                __m256i vb = _mm256_loadu_si256((__m256i*)(params.bs + params.ldb * (jj + ni) + bo));
+
+                // Extract lower 8 shorts and convert to int (lower 128 bits)
+                __m256i vb0i = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(vb, 0));
+                // Shift left 16 bits and convert to float
+                __m256 vb0 = _mm256_castsi256_ps(_mm256_slli_epi32(vb0i, 16));
+
+                // Extract lower 8 shorts and convert to int (upper 128 bits)
+                __m256i vb1i = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(vb, 1));
+                // Shift left 16 bits and convert to float
+                __m256 vb1 = _mm256_castsi256_ps(_mm256_slli_epi32(vb1i, 16));
+
+                for (int mi = 0; mi < RM; ++mi) {
+                    // Load shorts
+                    __m256i va = _mm256_loadu_si256((__m256i*)(params.as + params.lda * (ii + mi) + ao));
+
+                    // Extract lower 8 shorts and convert to int (lower 128 bits)
+                    __m256i va0i = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(va, 0));
+                    // Shift left 16 bits and convert to float
+                    __m256 va0 = _mm256_castsi256_ps(_mm256_slli_epi32(va0i, 16));
+
+                    // Extract lower 8 shorts and convert to int (upper 128 bits)
+                    __m256i va1i = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(va, 1));
+                    // Shift left 16 bits and convert to float
+                    __m256 va1 = _mm256_castsi256_ps(_mm256_slli_epi32(va1i, 16));
+
+                    // Multiply and accumulate
+                    sums[ni][mi] = _mm256_fmadd_ps(va0, vb0, sums[ni][mi]);
+                    sums[ni][mi] = _mm256_fmadd_ps(va1, vb1, sums[ni][mi]);
+                }
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            for (int mi = 0; mi < RM; ++mi) {
+                // Horizontal sum of the vector to get dot product
+                _mm256_storeu_ps(result, sums[ni][mi]);
+
+                float dot = 0.0;
+                for(int i = 0; i < 8; ++i) {
+                    dot += result[i];
+                }
+                if (params.rs != NULL)
+                    params.rs[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = fp32_to_bf16(dot);
+                else
+                    params.r[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = dot;
+            }
+        }
+    }
+}
+
+static void __attribute__((noinline)) gemm_f32_bf16_256(int m0, int m, int n0, int n, int RM, int RN, struct gemm_params params) {
+    int ytiles = (m - m0) / RM;
+    int xtiles = (n - n0) / RN;
+    int tiles = xtiles * ytiles;
+
+    float result[8] __attribute__((aligned(32)));
+
+    // This fits on the stack (max of 5x5)
+    __m256 sums[RN][RM];
+
+    for (int job = 0; job < tiles; ++job) {
+        int ii = m0 + job / xtiles * RM;
+        int jj = n0 + job % xtiles * RN;
+
+        //Reset the sums to zero for this tile
+        for (int i = 0; i < RN; i++) {
+            for (int j = 0; j < RM; j++) {
+                sums[i][j] = _mm256_setzero_ps();
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            int ao = params.aoffset;
+            int bo = params.boffset;
+            for(int j = 0; j < params.k; j += 16, ao += 16, bo +=16) { // 256bits == 16bfloats
+                // Load shorts
+                __m256i vb = _mm256_loadu_si256((__m256i*)(params.bs + params.ldb * (jj + ni) + bo));
+
+                // Extract lower 8 shorts and convert to int (lower 128 bits)
+                __m256i vb0i = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(vb, 0));
+                // Shift left 16 bits and convert to float
+                __m256 vb0 = _mm256_castsi256_ps(_mm256_slli_epi32(vb0i, 16));
+
+                // Extract lower 8 shorts and convert to int (upper 128 bits)
+                __m256i vb1i = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(vb, 1));
+                // Shift left 16 bits and convert to float
+                __m256 vb1 = _mm256_castsi256_ps(_mm256_slli_epi32(vb1i, 16));
+
+                for (int mi = 0; mi < RM; ++mi) {
+                    __m256 va0 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao);
+                    __m256 va1 = _mm256_loadu_ps(params.af + params.lda * (ii + mi) + ao + 8);
+
+                    // Multiply and accumulate
+                    sums[ni][mi] = _mm256_fmadd_ps(va0, vb0, sums[ni][mi]);
+                    sums[ni][mi] = _mm256_fmadd_ps(va1, vb1, sums[ni][mi]);
+                }
+            }
+        }
+
+        for (int ni = 0; ni < RN; ++ni) {
+            for (int mi = 0; mi < RM; ++mi) {
+                // Horizontal sum of the vector to get dot product
+                _mm256_storeu_ps(result, sums[ni][mi]);
+
+                float dot = 0.0;
+                for(int i = 0; i < 8; ++i) {
+                    dot += result[i];
+                }
+                if (params.rs != NULL)
+                    params.rs[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = fp32_to_bf16(dot);
+                else
+                    params.r[(params.ldc * (ii + mi)) + (jj + ni) - params.roffset] = dot;
+            }
+        }
+    }
+}

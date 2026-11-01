@@ -15,6 +15,6 @@ Como trabalhar:
 - Qualquer otimização precisa preservar a saída: rode `SmokeTest` em modo de comparação e confira a perplexidade/logits contra F32 quando mexer em quantização.
 - Alvos de hardware antigo: CPUs só com AVX2 ou sem AVX; tiling para cache, divisão de threads, quantização agressiva, modelos pequenos.
 - A Vector API continua em incubação no JDK 25; não aposte em ganhos do Valhalla antes de haver preview.
-- O backend nativo (`bitubi-inference-4j-native`) está desligado por padrão por dar resposta errada no JDK 25: se investigar, compare sempre com o Panama.
+- O backend nativo (`bitubi-inference-4j-native`) fica opt-in: a resposta errada vinha de um defeito nos blocos de borda do GEMM (corrigido); falta portabilidade (`-march=native`). Compare sempre nativo e Panama com `ShadowNativeInvestigation` e `TestNativeRemainderTiles`; veja `docs/backends.md`.
 
 Entrega: diff mínimo, números antes/depois com hardware e JDK, e o que não foi medido.

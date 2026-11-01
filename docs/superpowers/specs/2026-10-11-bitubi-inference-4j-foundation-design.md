@@ -80,7 +80,7 @@ Qualquer implementação dos sub-projetos 1 a 4 e do lado pago. Cada um terá se
 ## 5. Decisões posteriores (2026-10-11 e 2026-10-12)
 
 - **Nome do produto:** `bitubi-inference-4j` (substitui `aby-inference`). `groupId` `ao.bitubi`, pacote Java `ao.bitubi.inference4j`, artefatos `bitubi-inference-4j-{parent,core,native,net,cli,tests}`, comando da CLI `bi4j`. `bi4j` é também o harness de agentes (a CLI), decisão do autor em 2026-10-12.
-- **Panama por padrão no JDK 25.** O backend nativo (`jlama-native`) deu resposta errada no teste de fumaça no JDK 25 ("I'm sorry, but I can't assist with that." contra "The capital of France is Paris." com Panama). Passou a ser opt-in com `-Dbi4j.use_native_tensor_operations=true`. A causa do defeito nativo não foi investigada.
+- **Panama por padrão no JDK 25.** O backend nativo (`jlama-native`) deu resposta errada no teste de fumaça no JDK 25 ("I'm sorry, but I can't assist with that." contra "The capital of France is Paris." com Panama). Passou a ser opt-in com `-Dbi4j.use_native_tensor_operations=true`. Causa-raiz (2026-10-12): o driver de blocos do GEMM não calculava o canto das sobras de linhas e colunas, em C e em Java; não era o JDK 25. Detalhes em `docs/backends.md`.
 - **Bytecode 21 com JDK 25 como único JDK.** O Spring Boot 3.3.x não lê classes versão 69; o alvo sobe para 25 junto com o upgrade do Spring (sub-projeto 2).
 - **Equipa de agentes** em `.claude/agents/` (motor, formatos, servidor, cluster, build, QA, GPU, marca, harness) e regras do projeto em `CLAUDE.md`. Regra do autor: nunca adicionar trailers do Claude em commits ou PRs.
 - **Baseline de desempenho** (Intel Core Ultra 7 255H, WSL2, JDK 25, Panama): `docs/benchmarks/baseline-intel-core-ultra-7-255h.md`.
