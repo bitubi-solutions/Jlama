@@ -25,7 +25,7 @@ java -Dbi4j.backend=panama ...      # auto (padrão) | panama | naive | native
 
 ## Variantes do nativo
 
-Em x86-64, a biblioteca contém uma unidade base x86-64 sem instruções AVX e unidades separadas AVX2+FMA, AVX-VNNI e AVX-512+VNNI. O runtime consulta CPUID e o estado AVX do sistema operativo (`XGETBV`) antes de escolher a variante. AVX2+FMA é o mínimo para executar o backend nativo. Sem a flag antiga `use_native_tensor_operations`, `auto` continua a escolher Panama quando a Vector API está disponível; pedir `native` (ou activar a flag antiga) numa CPU abaixo do piso falha com erro.
+Em x86-64, a biblioteca contém uma unidade base x86-64 sem instruções AVX e unidades separadas AVX2+FMA, AVX-VNNI e AVX-512+VNNI. O runtime consulta CPUID e o estado AVX do sistema operativo (`XGETBV`) antes de escolher a variante. AVX2+FMA é o mínimo para executar o backend nativo. Sem a flag antiga `use_native_tensor_operations`, `auto` continua a escolher Panama quando a Vector API está disponível; pedir `native` (ou activar a flag antiga) numa CPU abaixo do piso regista um aviso no log e usa Panama.
 
 `bi4j.native.isa` limita a variante máxima escolhida, para executar uma variante mais baixa na mesma máquina:
 
@@ -94,7 +94,7 @@ Entre os que funcionam: o **nativo**, neste hardware e neste modelo, no prefill 
 
 ## Antes de tornar o nativo o padrão
 
-1. **Portabilidade entre CPUs:** o módulo nativo passou a compilar a base x86-64 sem AVX e a escolher kernels AVX2+FMA, AVX-VNNI e AVX-512+VNNI por CPUID. O piso do backend nativo é AVX2+FMA; em CPUs abaixo dele deve usar-se outro backend. `check-isa.sh` verifica os objectos x86 no build Linux.
+1. **Portabilidade entre CPUs:** o módulo nativo passou a compilar a base x86-64 sem AVX e a escolher kernels AVX2+FMA, AVX-VNNI e AVX-512+VNNI por CPUID. O piso do backend nativo é AVX2+FMA; em CPUs abaixo dele o pedido de `native` cai em Panama, com um aviso no log. `check-isa.sh` verifica os objectos x86 no build Linux.
 2. **Apple Silicon e Windows:** o nativo foi medido só em Linux x86.
 3. **Cobertura de testes:** `TestOperations` só inclui o nativo quando ele é o backend ativo; agora há também `TestNativeRemainderTiles`, que o executa sempre.
 4. **Carga do modelo:** o nativo demorou mais a carregar (4,5 s contra 2,9 s); causa não investigada.

@@ -92,13 +92,12 @@ public class TensorOperationsProvider {
         }
     }
 
-    /** An explicit choice that cannot be met fails: {@code newInstance} wraps what the constructor throws. */
+    /** True when the native constructor refused this CPU; {@code newInstance} wraps what the constructor throws. */
+    static boolean belowNativeFloor(Throwable t) {
+        return t instanceof InvocationTargetException && t.getCause() instanceof UnsupportedOperationException;
+    }
+
     static IllegalStateException nativeUnavailable(Throwable t) {
-        Throwable cause = t instanceof InvocationTargetException && t.getCause() != null ? t.getCause() : t;
-        if (cause instanceof UnsupportedOperationException) return new IllegalStateException(
-            cause.getMessage() + ". Use bi4j.backend=panama.",
-            cause
-        );
         return new IllegalStateException(
             "The native backend was requested but is not available. Add 'ao.bitubi:bitubi-inference-4j-native' "
                 + "to the classpath, or use bi4j.backend=panama.",
@@ -122,7 +121,9 @@ public class TensorOperationsProvider {
                     );
                     pick = nativeClazz.getConstructor().newInstance();
                 } catch (Throwable t) {
-                    throw nativeUnavailable(t);
+                    if (!belowNativeFloor(t) || MachineSpec.VECTOR_TYPE == MachineSpec.Type.NONE) throw nativeUnavailable(t);
+                    logger.warn("Falling back to Panama: {}", t.getCause().getMessage());
+                    pick = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
                 }
                 break;
             case NAIVE:

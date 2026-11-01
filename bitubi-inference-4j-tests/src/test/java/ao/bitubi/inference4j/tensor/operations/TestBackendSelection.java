@@ -79,10 +79,10 @@ public class TestBackendSelection {
     }
 
     @Test
-    public void aCpuBelowTheNativeFloorFailsWithTheRealReason() {
-        Throwable wrapped = new java.lang.reflect.InvocationTargetException(new UnsupportedOperationException("needs AVX2 + FMA"));
-        String m = TensorOperationsProvider.nativeUnavailable(wrapped).getMessage();
-        assertTrue(m, m.contains("needs AVX2 + FMA") && m.contains("bi4j.backend=panama") && !m.contains("classpath"));
+    public void onlyACpuBelowTheNativeFloorFallsBackToPanama() {
+        assertTrue(TensorOperationsProvider.belowNativeFloor(new java.lang.reflect.InvocationTargetException(new UnsupportedOperationException("x"))));
+        assertTrue(!TensorOperationsProvider.belowNativeFloor(new ClassNotFoundException("x")));
+        assertTrue(!TensorOperationsProvider.belowNativeFloor(new java.lang.reflect.InvocationTargetException(new IllegalStateException("x"))));
     }
 
     @Test
