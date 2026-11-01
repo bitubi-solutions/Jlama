@@ -18,13 +18,13 @@ java -Dbi4j.backend=panama ...      # auto (padrão) | panama | native
 ```
 
 - `auto` (padrão): Panama, que exige a Vector API (`--add-modules=jdk.incubator.vector`); sem ela falha com uma mensagem que diz o que fazer. **Nunca escolhe o nativo sozinho.**
-- O prefixo antigo `jlama.backend` é aceito. A flag antiga `use_native_tensor_operations=true` continua a selecionar o nativo quando o backend é `auto`.
+- O prefixo `jlama.` e a flag `use_native_tensor_operations` foram removidos (sem retrocompatibilidade): só `bi4j.backend` escolhe o backend. Se alguma delas estiver definida, o motor regista um WARN único com o nome novo e **não** aplica o valor.
 - Uma escolha explícita que não pode ser atendida falha com mensagem que diz o que fazer: `auto` e `panama` sem a Vector API ativa pedem `--add-modules=jdk.incubator.vector`; `native` sem o módulo no classpath pede o artefato; um nome desconhecido lista os válidos.
 - O backend em uso aparece no log (`Using Panama Vector Operations (OffHeap)`) e na linha `PERF` do teste de desempenho.
 
 ## Variantes do nativo
 
-Em x86-64, a biblioteca contém uma unidade base x86-64 sem instruções AVX e unidades separadas AVX2+FMA, AVX-VNNI e AVX-512+VNNI. O runtime consulta CPUID e o estado AVX do sistema operativo (`XGETBV`) antes de escolher a variante. AVX2+FMA é o mínimo para executar o backend nativo. Sem a flag antiga `use_native_tensor_operations`, `auto` continua a escolher Panama quando a Vector API está disponível; pedir `native` (ou activar a flag antiga) numa CPU abaixo do piso regista um aviso no log e usa Panama.
+Em x86-64, a biblioteca contém uma unidade base x86-64 sem instruções AVX e unidades separadas AVX2+FMA, AVX-VNNI e AVX-512+VNNI. O runtime consulta CPUID e o estado AVX do sistema operativo (`XGETBV`) antes de escolher a variante. AVX2+FMA é o mínimo para executar o backend nativo. `auto` continua a escolher Panama quando a Vector API está disponível; pedir `native` numa CPU abaixo do piso regista um aviso no log e usa Panama.
 
 `bi4j.native.isa` limita a variante máxima escolhida, para executar uma variante mais baixa na mesma máquina:
 

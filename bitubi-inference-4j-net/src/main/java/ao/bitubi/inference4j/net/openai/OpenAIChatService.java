@@ -45,7 +45,6 @@ public class OpenAIChatService {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenAIChatService.class);
     private static final String SESSION_HEADER = "X-Bi4j-Session";
-    private static final String LEGACY_SESSION_HEADER = "X-Jlama-Session";
 
     @Autowired
     private Generator model;
@@ -53,6 +52,12 @@ public class OpenAIChatService {
     // Sessions with a request in flight, in either mode. Taken before any stream is opened so a busy session
     // can be answered with a plain 409; the engine rejects concurrent generations on a session as well.
     private final Set<UUID> activeSessions = ConcurrentHashMap.newKeySet();
+
+    /** The session from the {@code X-Bi4j-Session} header, or a new one; throws if the header is not a UUID. */
+    static UUID sessionId(Map<String, String> headers) {
+        String value = headers.get(SESSION_HEADER);
+        return value == null ? UUID.randomUUID() : UUID.fromString(value);
+    }
 
     /**
      * POST /chat/completions : Creates a model response for the given chat conversation.
@@ -70,15 +75,11 @@ public class OpenAIChatService {
             return new ResponseEntity<>(HttpStatus.BAD_GATEWAY);
         }
 
-        UUID id = UUID.randomUUID();
-
-        String sessionHeader = headers.containsKey(SESSION_HEADER) ? SESSION_HEADER : LEGACY_SESSION_HEADER;
-        if (headers.containsKey(sessionHeader)) {
-            try {
-                id = UUID.fromString(headers.get(sessionHeader));
-            } catch (IllegalArgumentException e) {
-                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
-            }
+        UUID id;
+        try {
+            id = sessionId(headers);
+        } catch (IllegalArgumentException e) {
+            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
         }
 
         UUID sessionId = id;

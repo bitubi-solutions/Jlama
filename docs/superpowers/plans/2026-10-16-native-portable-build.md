@@ -15,7 +15,7 @@ Remover `-march=native`. Um único `libbi4j` por sistema operacional e arquitetu
 - **uma unidade por ISA** (`kernels_avx2.c`, `kernels_avxvnni.c`, `kernels_avx512.c`; `kernels_neon.c` no ARM64),
   cada uma com as suas flags e a sua tabela de funções;
 - **seleção em tempo de execução** por CPUID (com a verificação do SO via `xgetbv`), limitada por um teto
-  vindo de Java: `-Dbi4j.native.isa=auto|avx2|avxvnni|avx512|neon` (o prefixo antigo `jlama.` continua aceito);
+  vindo de Java: `-Dbi4j.native.isa=auto|avx2|avxvnni|avx512|neon`;
 - **verificação por `objdump`** no build Linux: a unidade base não pode ter instruções VEX/EVEX, nem as
   unidades AVX2/AVX-VNNI instruções AVX-512.
 

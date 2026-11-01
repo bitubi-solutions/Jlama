@@ -23,9 +23,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Picks the tensor operations backend. Select it with {@code -Dbi4j.backend=<auto|panama|native>}
- * (the legacy {@code jlama.} prefix is also accepted). {@code auto}, the default, uses Panama (the Vector API),
- * which needs {@code --add-modules=jdk.incubator.vector}. The native backend is never chosen automatically.
+ * Picks the tensor operations backend. Select it with {@code -Dbi4j.backend=<auto|panama|native>}.
+ * {@code auto}, the default, uses Panama (the Vector API), which needs {@code --add-modules=jdk.incubator.vector}. The native backend is never chosen automatically.
  */
 public class TensorOperationsProvider {
     static {
@@ -62,16 +61,14 @@ public class TensorOperationsProvider {
      * Resolves which backend to use.
      *
      * @param requested value of {@code bi4j.backend}; null, empty or "auto" means automatic
-     * @param legacyNativeFlag value of the old {@code use_native_tensor_operations} flag (only used when auto)
      * @param vectorType the vector support detected on this machine
      */
-    static Backend resolveBackend(String requested, boolean legacyNativeFlag, MachineSpec.Type vectorType) {
+    static Backend resolveBackend(String requested, MachineSpec.Type vectorType) {
         String r = requested == null ? "auto" : requested.trim().toLowerCase(Locale.ROOT);
         if (r.isEmpty()) r = "auto";
 
         switch (r) {
             case "auto":
-                if (legacyNativeFlag) return Backend.NATIVE;
                 return requirePanama(vectorType);
             case "panama":
                 return requirePanama(vectorType);
@@ -108,7 +105,6 @@ public class TensorOperationsProvider {
     private TensorOperations pickImplementation() {
         Backend backend = resolveBackend(
             Bi4jProperties.getString("backend"),
-            Bi4jProperties.getBoolean("use_native_tensor_operations"),
             MachineSpec.VECTOR_TYPE
         );
 
