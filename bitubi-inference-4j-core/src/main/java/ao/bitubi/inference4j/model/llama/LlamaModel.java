@@ -23,6 +23,7 @@ import ao.bitubi.inference4j.safetensors.DType;
 import ao.bitubi.inference4j.safetensors.WeightLoader;
 import ao.bitubi.inference4j.safetensors.tokenizer.Tokenizer;
 import ao.bitubi.inference4j.tensor.AbstractTensor;
+import ao.bitubi.inference4j.tensor.FloatBufferTensor;
 import ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.primitives.Ints;
@@ -85,6 +86,7 @@ public class LlamaModel extends AbstractModel {
                 return embedding;
             } else {
                 AbstractTensor at = wte.slice(true, inputToken);
+                if (at.dType() == DType.I8) return new FloatBufferTensor(at);
                 AbstractTensor embedding = at.copyShape();
 
                 // Always copy the entire embedding

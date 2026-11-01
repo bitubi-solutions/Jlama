@@ -66,6 +66,11 @@ public abstract class BPETokenizer implements Tokenizer {
         }
     }
 
+    protected BPETokenizer(TokenizerModel model) {
+        this.model = model;
+        this.promptSupport = new PromptSupport(model);
+    }
+
     @Override
     public TokenizerModel getModel() {
         return model;
