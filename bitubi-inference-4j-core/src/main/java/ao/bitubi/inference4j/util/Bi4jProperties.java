@@ -28,6 +28,12 @@ public final class Bi4jProperties {
 
     private Bi4jProperties() {}
 
+    /** Value of {@code bi4j.<name>}, else the legacy {@code jlama.<name>}, else {@code null}. */
+    public static String getString(String name) {
+        String v = System.getProperty(PREFIX + name);
+        return v != null ? v : System.getProperty(LEGACY_PREFIX + name);
+    }
+
     /** True if {@code bi4j.<name>} (or the legacy {@code jlama.<name>}) is set to "true". */
     public static boolean getBoolean(String name) {
         return Boolean.getBoolean(PREFIX + name) || Boolean.getBoolean(LEGACY_PREFIX + name);

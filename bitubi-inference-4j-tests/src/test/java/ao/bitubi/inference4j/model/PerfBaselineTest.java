@@ -27,9 +27,27 @@ import org.junit.Test;
 /** Prints tokens/s for a small model. Informational only; opt-in with PERF_BASELINE=1. */
 public class PerfBaselineTest {
 
-    private static final int WARMUP_RUNS = 2;
-    private static final int MEASURED_RUNS = 5;
-    private static final int MAX_TOKENS = 256;
+    // Overridable so slow backends (e.g. naive) can run a short measurement: PERF_WARMUP, PERF_RUNS, PERF_MAX_TOKENS
+    private static final int WARMUP_RUNS = envInt("PERF_WARMUP", 2);
+    private static final int MEASURED_RUNS = envInt("PERF_RUNS", 5);
+    private static final int MAX_TOKENS = envInt("PERF_MAX_TOKENS", 256);
+
+    private static int envInt(String name, int def) {
+        String v = System.getenv(name);
+        return v == null || v.isBlank() ? def : Integer.parseInt(v.trim());
+    }
+
+    /** Reads a size in MB from /proc/self/status (Linux); -1 elsewhere. VmHWM = peak resident set, VmRSS = current. */
+    private static long procStatusMb(String key) {
+        try {
+            for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of("/proc/self/status"))) {
+                if (line.startsWith(key + ":")) return Long.parseLong(line.replaceAll("[^0-9]", "")) / 1024;
+            }
+        } catch (Exception e) {
+            // not Linux
+        }
+        return -1;
+    }
 
     @Test
     public void measureTokensPerSecond() throws Exception {
@@ -62,12 +80,14 @@ public class PerfBaselineTest {
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         System.out.printf(
-            "PERF jdk=%d load_ms=%d prefill_tok_s=%.2f decode_tok_s=%.2f heap_used_mb=%d%n",
+            "PERF jdk=%d backend=%s load_ms=%d prefill_tok_s=%.2f decode_tok_s=%.2f heap_used_mb=%d rss_peak_mb=%d%n",
             Runtime.version().feature(),
+            ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider.get().name().replace(' ', '_'),
             loadMs,
             prefillSum / MEASURED_RUNS,
             decodeSum / MEASURED_RUNS,
-            usedMb
+            usedMb,
+            procStatusMb("VmHWM")
         );
     }
 }

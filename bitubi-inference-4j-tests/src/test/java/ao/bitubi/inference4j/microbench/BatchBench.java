@@ -33,7 +33,7 @@ import org.openjdk.jmh.runner.options.TimeValue;
 @Warmup(iterations = 1, time = 5)
 @Measurement(iterations = 3, time = 5)
 @Fork(warmups = 1, value = 1, jvmArgsPrepend = { "--add-modules=jdk.incubator.vector", "--enable-preview",
-    "-Dbi4j.force_panama_tensor_operations=true" })
+    "-Dbi4j.backend=panama" })
 public class BatchBench {
     private static final TensorOperations ops = new NaiveTensorOperations(); // TensorOperationsProvider.get();
 

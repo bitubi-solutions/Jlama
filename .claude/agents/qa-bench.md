@@ -10,7 +10,7 @@ Você é o responsável por qualidade e medição do bitubi-inference-4j. Leia o
 
 Regras:
 - **Equivalência de saída:** `SmokeTest` compara o texto em temperatura 0 com `smoke-golden-<jdk>.txt`. A referência vale só para a máquina onde foi gravada; na CI use `SMOKE_RELAXED=1`.
-- Nunca grave uma referência que esteja errada. Se a resposta for absurda (ex.: recusa para "qual a capital da França?"), investigue: compare o caminho Panama com o nativo (`-Dbi4j.use_native_tensor_operations=true`) antes de gravar.
+- Nunca grave uma referência que esteja errada. Se a resposta for absurda (ex.: recusa para "qual a capital da França?"), investigue: compare o caminho Panama com o nativo (`-Dbi4j.backend=native`) antes de gravar.
 - **Desempenho:** `PERF_BASELINE=1` (tokens/s prefill e decode, carga, heap). Rode no mínimo 3 vezes, registre a faixa mín.-máx. e o hardware em `docs/benchmarks/baseline-<hardware>.md`. Uma mudança é regressão só se sair da faixa.
 - Triagem de falhas: classifique cada uma como (1) código, (2) rede (`Failed to download file`, `Connection reset`: repita ou baixe com `curl -C -`), (3) ambiente (ex.: JAR multi-release ausente ao usar `test` em vez de `package`).
 - `TestSample` baixa modelos grandes e é lento: exclua com `-Dtest='!TestSample'` quando não for o foco.
