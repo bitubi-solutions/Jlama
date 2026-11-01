@@ -81,4 +81,17 @@ public class TestBackendSelection {
             assertTrue(m, m.contains("gpu") && m.contains("auto") && m.contains("panama") && m.contains("native") && !m.contains("naive,"));
         }
     }
+
+    @Test
+    public void onlyACpuBelowTheNativeFloorFallsBackToPanama() {
+        assertTrue(TensorOperationsProvider.belowNativeFloor(new java.lang.reflect.InvocationTargetException(new UnsupportedOperationException("x"))));
+        assertTrue(!TensorOperationsProvider.belowNativeFloor(new ClassNotFoundException("x")));
+        assertTrue(!TensorOperationsProvider.belowNativeFloor(new java.lang.reflect.InvocationTargetException(new IllegalStateException("x"))));
+    }
+
+    @Test
+    public void aMissingNativeModuleAsksForTheArtifact() {
+        String m = TensorOperationsProvider.nativeUnavailable(new ClassNotFoundException("x")).getMessage();
+        assertTrue(m, m.contains("classpath"));
+    }
 }

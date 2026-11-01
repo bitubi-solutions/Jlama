@@ -77,12 +77,15 @@ public class TestNativeRemainderTiles {
 
     @Test
     public void everyCellIsComputedForShapesWithRowAndColumnRemainders() {
-        TensorOperations nat = null;
+        // One native operations object per ISA this CPU supports (avx2, avxvnni, avx512...), so every variant is checked
+        java.util.Map<String, TensorOperations> natives = new java.util.LinkedHashMap<>();
         try {
-            nat = new NativeSimdTensorOperations();
+            for (String isa : NativeSimdTensorOperations.supportedIsas())
+                natives.put("native-" + isa, new NativeSimdTensorOperations(NativeSimdTensorOperations.capFlags(isa)));
         } catch (Throwable t) {
             Assume.assumeNoException("native library not loadable here", t);
         }
+        Assert.assertFalse("no native ISA supported", natives.isEmpty());
         TensorOperations panama = new PanamaTensorOperations(MachineSpec.Type.AVX_256);
 
         String[] names = { "F32xF32", "F32xQ4", "F32xBF16", "I8xQ4" };
@@ -109,10 +112,12 @@ public class TestNativeRemainderTiles {
                     Random r = new Random(7L * m + n);
                     AbstractTensor a = as.get(d).apply(random(r, m, K));
                     AbstractTensor b = bs.get(d).apply(random(r, n, K));
-                    for (Object[] be : new Object[][] { { "panama", panama }, { "native", nat } }) {
-                        String bad = firstBadCell((TensorOperations) be[1], a, b, m, n);
+                    java.util.Map<String, TensorOperations> backends = new java.util.LinkedHashMap<>(natives);
+                    backends.put("panama", panama);
+                    for (java.util.Map.Entry<String, TensorOperations> be : backends.entrySet()) {
+                        String bad = firstBadCell(be.getValue(), a, b, m, n);
                         if (bad != null) {
-                            String key = be[0] + " " + names[d];
+                            String key = be.getKey() + " " + names[d];
                             badCount.merge(key, 1, Integer::sum);
                             firstBad.putIfAbsent(key, "M=" + m + " N=" + n + " " + bad);
                         }
