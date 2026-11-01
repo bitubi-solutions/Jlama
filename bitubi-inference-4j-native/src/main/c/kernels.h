@@ -74,6 +74,7 @@ struct bi4j_kernels {
 #if defined(__ARM_NEON__) || defined(__ARM_NEON)
 #define BI4J_ARM 1
 extern const struct bi4j_kernels bi4j_kernels_neon;
+extern const struct bi4j_kernels bi4j_kernels_neon_dotprod;
 #else
 #define BI4J_ARM 0
 extern const struct bi4j_kernels bi4j_kernels_avx2;

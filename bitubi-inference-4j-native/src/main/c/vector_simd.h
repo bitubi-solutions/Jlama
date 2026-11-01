@@ -18,6 +18,7 @@
 // Os bits 8..11 de "flags" sao um teto (0 = sem teto): a CPU escolhe o nivel mais alto suportado ate ao teto.
 #define BI4J_ISA_AVX2 1
 #define BI4J_ISA_NEON 1
+#define BI4J_ISA_NEON_DOTPROD 2
 #define BI4J_ISA_AVXVNNI 2
 #define BI4J_ISA_AVX512 3
 #define BI4J_ISA_CAP_SHIFT 8

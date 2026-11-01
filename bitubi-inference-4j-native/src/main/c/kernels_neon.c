@@ -14,8 +14,6 @@ static void __attribute__((noinline)) gemm_q8_q4_128_arm(int m0, int m, int n0, 
 #endif
     int numBlocks = params.k / Q4_BLOCK_SIZE;
 
-    __attribute__((aligned(16))) float scalef[4];
-
     // This fits on the stack (max of 5x5)
     for (int job = 0; job < tiles; ++job) {
 
@@ -43,13 +41,7 @@ static void __attribute__((noinline)) gemm_q8_q4_128_arm(int m0, int m, int n0, 
                     ao = aoo;
                     bo = boo;
 
-                    // Load float32
-                    float32x4_t ablock = vld1q_f32(params.af + (params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)));
-                    float32x4_t bblock = vld1q_f32(params.bf + (params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)));
-                    float32x4_t scaled = vmulq_f32(ablock, bblock);
-                    vst1q_f32(scalef, scaled);
-
-                    for(int j = 0; j < 4; j++, ao += 32, bo += 16) {
+                    for(int j = 0; j < 4 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
 #if defined(__ARM_FEATURE_DOTPROD)
                         // Load 4 bytes into a 128-bit integer register
                         int8x16_t int_va0 = vld1q_s8((const signed char *)(params.a + params.lda * (ii + mi) + ao));
@@ -64,7 +56,7 @@ static void __attribute__((noinline)) gemm_q8_q4_128_arm(int m0, int m, int n0, 
 
 #if defined(__ARM_FEATURE_DOTPROD)
                         int32x4_t dot = vdotq_s32(vdotq_s32(vdupq_n_s32(0), int_va0, int_vb0), int_va1, int_vb1);
-                        sums[mi][ni] = vmlaq_n_f32(sums[mi][ni], vcvtq_f32_s32(dot), scalef[j]);
+                        sums[mi][ni] = vmlaq_n_f32(sums[mi][ni], vcvtq_f32_s32(dot), params.af[params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)] * params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)]);
 #else
                         int dot = 0;
                         const signed char *qa = (const signed char *)(params.a + params.lda * (ii + mi) + ao);
@@ -74,7 +66,7 @@ static void __attribute__((noinline)) gemm_q8_q4_128_arm(int m0, int m, int n0, 
                             dot += qa[q + 16] * ((qb[q] >> 4) - 8);
                         }
                         float32x4_t dotVector = vsetq_lane_f32((float)dot, vdupq_n_f32(0.0f), 0);
-                        sums[mi][ni] = vmlaq_n_f32(sums[mi][ni], dotVector, scalef[j]);
+                        sums[mi][ni] = vmlaq_n_f32(sums[mi][ni], dotVector, params.af[params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)] * params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)]);
 #endif
                     }
                 }
@@ -143,8 +135,6 @@ static void __attribute__((noinline)) gemm_f32_q4_128_arm(int m0, int m, int n0,
     int8x16_t eight = vdupq_n_s8(0x8);
     int numBlocks = params.k / Q4_BLOCK_SIZE;
 
-    __attribute__((aligned(16))) float scalef[4];
-
     // This fits on the stack (max of 5x5)
     for (int job = 0; job < tiles; ++job) {
 
@@ -173,11 +163,9 @@ static void __attribute__((noinline)) gemm_f32_q4_128_arm(int m0, int m, int n0,
                     bo = boo;
 
                     // Load float32
-                    float32x4_t bblock = vld1q_f32(params.bf + (params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)));
-                    vst1q_f32(scalef, bblock);
 
-                    for(int j = 0; j < 4; j++, ao += 32, bo += 16) {
-                        float32x4_t vb_f32 = vdupq_n_f32(scalef[j]);
+                    for(int j = 0; j < 4 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
+                        float32x4_t vb_f32 = vdupq_n_f32(params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)]);
 
                         // Load 4 bytes into a 128-bit integer register
                         float32x4_t f_va0 = vld1q_f32(params.af + params.lda * (ii + mi) + ao);
@@ -354,6 +342,10 @@ static void gemm_f32_bf16_128_arm(int m0, int m, int n0, int n, int RM, int RN, 
     }
 }
 
-const struct bi4j_kernels bi4j_kernels_neon = {
+#ifndef BI4J_NEON_TABLE
+#define BI4J_NEON_TABLE bi4j_kernels_neon
+#endif
+
+const struct bi4j_kernels BI4J_NEON_TABLE = {
     "neon", gemm_q8_q4_128_arm, gemm_f32_128_arm, gemm_f32_q4_128_arm, gemm_bf16_128_arm, gemm_f32_bf16_128_arm
 };

@@ -35,7 +35,7 @@ java -Dbi4j.backend=native -Dbi4j.native.isa=avxvnni ...
 java -Dbi4j.backend=native -Dbi4j.native.isa=auto ...
 ```
 
-Valores aceites: `auto`, `avx2`, `avxvnni`, `avx512`; em ARM64, `neon`. Um limite acima do suportado selecciona a variante mais alta disponível abaixo desse limite e deixa um aviso no log. A lista da CPU aparece no log ao criar o backend. Em ARM64, a unidade base é NEON; dotprod/i8mm ainda não têm variantes independentes.
+Valores aceites: `auto`, `avx2`, `avxvnni`, `avx512`; em ARM64, `neon` e `neon-dotprod`. Um limite acima do suportado selecciona a variante mais alta disponível abaixo desse limite e deixa um aviso no log. A lista da CPU aparece no log ao criar o backend. Em ARM64, a unidade base é NEON; dotprod/i8mm ainda não têm variantes independentes.
 
 No Linux x86-64, `check-isa.sh` usa `objdump` para exigir todos os objectos, confirmar que a unidade base não contém VEX/EVEX, que AVX2 não contém AVX-VNNI/AVX-512, que AVX-VNNI não contém AVX-512 e que as unidades avançadas contêm as instruções esperadas. A variante AVX-512 é compilada e inspeccionada em CPUs sem AVX-512, mas não deve ser executada nelas.
 

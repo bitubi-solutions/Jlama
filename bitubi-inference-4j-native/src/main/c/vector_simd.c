@@ -174,9 +174,30 @@ static int detect_isas(void) {
 static const struct bi4j_kernels *const tables[] = { NULL, &bi4j_kernels_avx2, &bi4j_kernels_avxvnni, &bi4j_kernels_avx512 };
 #define BI4J_MAX_ISA BI4J_ISA_AVX512
 #else
-static int detect_isas(void) { return 1 << BI4J_ISA_NEON; }
-static const struct bi4j_kernels *const tables[] = { NULL, &bi4j_kernels_neon };
-#define BI4J_MAX_ISA BI4J_ISA_NEON
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+static int has_dotprod(void) {
+    int value = 0;
+    size_t size = sizeof(value);
+    return sysctlbyname("hw.optional.arm.FEAT_DotProd", &value, &size, NULL, 0) == 0 && value != 0;
+}
+#elif defined(__linux__)
+#include <sys/auxv.h>
+#ifndef HWCAP_ASIMDDP
+#define HWCAP_ASIMDDP (1 << 20)
+#endif
+static int has_dotprod(void) { return (getauxval(AT_HWCAP) & HWCAP_ASIMDDP) != 0; }
+#else
+static int has_dotprod(void) { return 0; }
+#endif
+
+static int detect_isas(void) {
+    int mask = 1 << BI4J_ISA_NEON;
+    if (has_dotprod()) mask |= 1 << BI4J_ISA_NEON_DOTPROD;
+    return mask;
+}
+static const struct bi4j_kernels *const tables[] = { NULL, &bi4j_kernels_neon, &bi4j_kernels_neon_dotprod };
+#define BI4J_MAX_ISA BI4J_ISA_NEON_DOTPROD
 #endif
 
 int bi4j_supported_isas(void) {

@@ -31,7 +31,7 @@ ifneq ($(filter x86_64 amd64,$(ARCH)),)
 ISA_UNITS ?= avx2 avxvnni avx512
 BASE_ISA_CFLAGS = -march=x86-64
 else ifneq ($(filter aarch64 arm64,$(ARCH)),)
-ISA_UNITS ?= neon
+ISA_UNITS ?= neon neon_dotprod
 BASE_ISA_CFLAGS = -march=armv8-a
 else
 $(error arquitetura nao suportada: $(ARCH))
@@ -44,11 +44,14 @@ $(OBJ_DIR)/kernels_avx2.o:    ISA_CFLAGS = -mavx2 -mfma
 $(OBJ_DIR)/kernels_avxvnni.o: ISA_CFLAGS = -mavx2 -mfma -mavxvnni
 $(OBJ_DIR)/kernels_avx512.o:  ISA_CFLAGS = -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni
 $(OBJ_DIR)/kernels_neon.o:    ISA_CFLAGS = -march=armv8-a
+$(OBJ_DIR)/kernels_neon_dotprod.o: ISA_CFLAGS = -march=armv8.2-a+dotprod
 $(OBJ_DIR)/vector_simd.o:     ISA_CFLAGS = $(BASE_ISA_CFLAGS)
 
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 all: $(LIB)
+
+$(OBJ_DIR)/kernels_neon_dotprod.o: $(SRC_DIR)/kernels_neon.c
 
 $(LIB): $(OBJS)
 	mkdir -p $(LIB_DIR)

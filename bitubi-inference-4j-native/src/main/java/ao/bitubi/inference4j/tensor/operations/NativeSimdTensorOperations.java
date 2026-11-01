@@ -56,7 +56,7 @@ public class NativeSimdTensorOperations implements TensorOperations {
 
     /**
      * Picks the best ISA this CPU supports, capped by {@code -Dbi4j.native.isa=auto|avx2|avxvnni|avx512} (or
-     * {@code neon} on ARM64). The cap exists to test every variant on a single machine.
+     * {@code neon|neon-dotprod} on ARM64). The cap exists to test every variant on a single machine.
      */
     public NativeSimdTensorOperations() {
         this(capFlags(Bi4jProperties.getString("native.isa")) | (RuntimeSupport.isLinux() ? HAS_F16C : 0));
@@ -73,9 +73,13 @@ public class NativeSimdTensorOperations implements TensorOperations {
         logger.info("Native ISA: {} (this CPU supports {})", isaName(level), supportedIsas());
     }
 
-    /** Name of an ISA level: 1 = avx2 (neon on ARM64), 2 = avxvnni, 3 = avx512. */
+    /** Name of an ISA level: 1 = avx2 (neon on ARM64), 2 = avxvnni (neon-dotprod on ARM64), 3 = avx512. */
     static String isaName(int level) {
-        if (level == 1 && RuntimeSupport.isArm()) return "neon";
+        if (RuntimeSupport.isArm()) return switch (level) {
+            case 1 -> "neon";
+            case 2 -> "neon-dotprod";
+            default -> "none";
+        };
         return switch (level) {
             case 1 -> "avx2";
             case 2 -> "avxvnni";
@@ -98,7 +102,7 @@ public class NativeSimdTensorOperations implements TensorOperations {
         if (isa == null || isa.isBlank() || isa.equalsIgnoreCase("auto")) return 0;
         for (int level = 1; level <= NativeSimd.BI4J_ISA_AVX512(); level++)
             if (isaName(level).equalsIgnoreCase(isa.trim())) return level << NativeSimd.BI4J_ISA_CAP_SHIFT();
-        throw new IllegalArgumentException("Unknown bi4j.native.isa '" + isa + "'; valid: auto, avx2, avxvnni, avx512, neon");
+        throw new IllegalArgumentException("Unknown bi4j.native.isa '" + isa + "'; valid: auto, avx2, avxvnni, avx512, neon, neon-dotprod");
     }
 
     @Override

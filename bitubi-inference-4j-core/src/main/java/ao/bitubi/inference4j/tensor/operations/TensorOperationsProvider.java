@@ -17,6 +17,7 @@ package ao.bitubi.inference4j.tensor.operations;
 
 import ao.bitubi.inference4j.util.Bi4jProperties;
 import ao.bitubi.inference4j.util.MachineSpec;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,20 @@ public class TensorOperationsProvider {
         }
     }
 
+    /** An explicit choice that cannot be met fails: {@code newInstance} wraps what the constructor throws. */
+    static IllegalStateException nativeUnavailable(Throwable t) {
+        Throwable cause = t instanceof InvocationTargetException && t.getCause() != null ? t.getCause() : t;
+        if (cause instanceof UnsupportedOperationException) return new IllegalStateException(
+            cause.getMessage() + ". Use bi4j.backend=panama.",
+            cause
+        );
+        return new IllegalStateException(
+            "The native backend was requested but is not available. Add 'ao.bitubi:bitubi-inference-4j-native' "
+                + "to the classpath, or use bi4j.backend=panama.",
+            t
+        );
+    }
+
     private TensorOperations pickImplementation() {
         Backend backend = resolveBackend(
             Bi4jProperties.getString("backend"),
@@ -106,17 +121,8 @@ public class TensorOperationsProvider {
                         "ao.bitubi.inference4j.tensor.operations.NativeSimdTensorOperations"
                     );
                     pick = nativeClazz.getConstructor().newInstance();
-                    // This will throw if no shared lib found or CPU lacks AVX2+FMA/NEON
-                } catch (UnsupportedOperationException e) {
-                    // CPU does not support required ISA (AVX2+FMA / NEON); fallback to Panama
-                    logger.warn("Native backend unavailable (CPU ISA): {}, falling back to Panama", e.getMessage());
-                    pick = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
                 } catch (Throwable t) {
-                    throw new IllegalStateException(
-                        "The native backend was requested but is not available. Add 'ao.bitubi:bitubi-inference-4j-native' "
-                            + "to the classpath, or use bi4j.backend=panama.",
-                        t
-                    );
+                    throw nativeUnavailable(t);
                 }
                 break;
             case NAIVE:
