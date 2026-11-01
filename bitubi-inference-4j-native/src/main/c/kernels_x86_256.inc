@@ -12,7 +12,6 @@ static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int 
     int numBlocks = params.k / Q4_BLOCK_SIZE;
 
     // This fits on the stack (max of 5x5)
-    __attribute__((aligned(64))) float scalef[8];
     for (int job = 0; job < tiles; ++job) {
 
         int ii = m0 + job / xtiles * RM;
@@ -39,12 +38,6 @@ static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int 
                     ao = aoo;
                     bo = boo;
 
-                    // Load float32
-                     __m256 ablock = _mm256_loadu_ps(params.af + (params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)));
-                     __m256 bblock = _mm256_loadu_ps(params.bf + (params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)));
-                     __m256 scaled = _mm256_mul_ps(ablock, bblock);
-                     _mm256_storeu_ps(scalef, scaled);
-
                     for(int j = 0; j < 8 && (i + j) < numBlocks; j++, ao += 32, bo += 16) {
                         // Load 16 bytes into 2 128-bit integer registers
                         __m256i int_va1 = _mm256_loadu_si256((__m256i const*)(params.a + params.lda * (ii + mi) + ao));
@@ -67,7 +60,7 @@ static void __attribute__((noinline)) gemm_q8_q4_256(int m0, int m, int n0, int 
                         __m256 resf = _mm256_cvtepi32_ps(res);
 
                         // broadcast the float32 version of 'factor' to all elements
-                        __m256 scale_f32 = _mm256_set1_ps(scalef[j]);
+                        __m256 scale_f32 = _mm256_set1_ps(params.af[params.ldaf * (ii + mi) + (ao / Q4_BLOCK_SIZE)] * params.bf[params.ldbf * (jj + ni) + ((bo*2) / Q4_BLOCK_SIZE)]);
 
                         sums[ni][mi] = _mm256_fmadd_ps(scale_f32, resf, sums[ni][mi]);
                     }

@@ -77,4 +77,17 @@ public class TestBackendSelection {
             assertTrue(m, m.contains("gpu") && m.contains("auto") && m.contains("panama") && m.contains("naive") && m.contains("native"));
         }
     }
+
+    @Test
+    public void aCpuBelowTheNativeFloorFailsWithTheRealReason() {
+        Throwable wrapped = new java.lang.reflect.InvocationTargetException(new UnsupportedOperationException("needs AVX2 + FMA"));
+        String m = TensorOperationsProvider.nativeUnavailable(wrapped).getMessage();
+        assertTrue(m, m.contains("needs AVX2 + FMA") && m.contains("bi4j.backend=panama") && !m.contains("classpath"));
+    }
+
+    @Test
+    public void aMissingNativeModuleAsksForTheArtifact() {
+        String m = TensorOperationsProvider.nativeUnavailable(new ClassNotFoundException("x")).getMessage();
+        assertTrue(m, m.contains("classpath"));
+    }
 }
