@@ -15,15 +15,19 @@
  */
 package ao.bitubi.inference4j.net.openai;
 
+import ao.bitubi.inference4j.model.SessionBusyException;
 import ao.bitubi.inference4j.model.functions.Generator;
 import ao.bitubi.inference4j.net.openai.model.*;
 import ao.bitubi.inference4j.safetensors.prompt.PromptSupport;
 import jakarta.validation.Valid;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -45,6 +49,10 @@ public class OpenAIChatService {
 
     @Autowired
     private Generator model;
+
+    // Sessions with a request in flight, in either mode. Taken before any stream is opened so a busy session
+    // can be answered with a plain 409; the engine rejects concurrent generations on a session as well.
+    private final Set<UUID> activeSessions = ConcurrentHashMap.newKeySet();
 
     /**
      * POST /chat/completions : Creates a model response for the given chat conversation.
@@ -106,6 +114,10 @@ public class OpenAIChatService {
         float temperature = 0.3f;
         int maxTokens = request.getMaxTokens() == null ? model.getConfig().contextLength : request.getMaxTokens();
 
+        if (!activeSessions.add(sessionId)) {
+            return sessionBusy(new SessionBusyException(sessionId));
+        }
+
         logger.info("Generating completion for session {} with temperature {} and max tokens {}", sessionId, temperature, maxTokens);
         AtomicInteger index = new AtomicInteger(0);
         if (request.getStream() != null && request.getStream()) {
@@ -129,6 +141,7 @@ public class OpenAIChatService {
                 }))
             ).handle((r, ex) -> {
                 try {
+                    activeSessions.remove(sessionId);
                     emitter.send(
                         new CreateChatCompletionStreamResponse().id(sessionId.toString())
                             .choices(
@@ -157,7 +170,12 @@ public class OpenAIChatService {
 
             return emitter;
         } else {
-            Generator.Response r = model.generate(sessionId, builder.build(), temperature, maxTokens, (s, f) -> {});
+            Generator.Response r;
+            try {
+                r = model.generate(sessionId, builder.build(), temperature, maxTokens, (s, f) -> {});
+            } finally {
+                activeSessions.remove(sessionId);
+            }
 
             CreateChatCompletionResponse out = new CreateChatCompletionResponse().id(sessionId.toString())
                 .choices(
@@ -170,5 +188,15 @@ public class OpenAIChatService {
 
             return new ResponseEntity<>(out, HttpStatus.OK);
         }
+    }
+
+    @ExceptionHandler(SessionBusyException.class)
+    ResponseEntity<Map<String, Object>> sessionBusy(SessionBusyException e) {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("message", e.getMessage());
+        error.put("type", "invalid_request_error");
+        error.put("param", null);
+        error.put("code", "session_busy");
+        return new ResponseEntity<>(Map.of("error", error), HttpStatus.CONFLICT);
     }
 }

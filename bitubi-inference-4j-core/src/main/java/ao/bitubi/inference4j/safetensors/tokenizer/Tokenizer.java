@@ -46,6 +46,16 @@ public interface Tokenizer {
     String decode(long id);
 
     /**
+     * Raw bytes of a token for byte-level tokenizers, whose tokens can end in the middle of a UTF-8 character.
+     * Callers that stream tokens one by one should join the bytes and decode them as UTF-8 themselves.
+     * @param id
+     * @return the bytes, or empty when the token is plain text and {@link #decode(long)} is enough
+     */
+    default Optional<byte[]> decodeBytes(long id) {
+        return Optional.empty();
+    }
+
+    /**
      * Decode a list of token ids into their string representation
      * @param ids list of token ids
      * @return list of token strings
