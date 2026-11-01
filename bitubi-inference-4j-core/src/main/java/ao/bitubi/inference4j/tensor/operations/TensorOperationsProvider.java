@@ -17,6 +17,7 @@ package ao.bitubi.inference4j.tensor.operations;
 
 import ao.bitubi.inference4j.util.Bi4jProperties;
 import ao.bitubi.inference4j.util.MachineSpec;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,19 @@ public class TensorOperationsProvider {
         return Backend.PANAMA;
     }
 
+    /** True when the native constructor refused this CPU; {@code newInstance} wraps what the constructor throws. */
+    static boolean belowNativeFloor(Throwable t) {
+        return t instanceof InvocationTargetException && t.getCause() instanceof UnsupportedOperationException;
+    }
+
+    static IllegalStateException nativeUnavailable(Throwable t) {
+        return new IllegalStateException(
+            "The native backend was requested but is not available. Add 'ao.bitubi:bitubi-inference-4j-native' "
+                + "to the classpath, or use bi4j.backend=panama.",
+            t
+        );
+    }
+
     private TensorOperations pickImplementation() {
         Backend backend = resolveBackend(
             Bi4jProperties.getString("backend"),
@@ -106,13 +120,10 @@ public class TensorOperationsProvider {
                         "ao.bitubi.inference4j.tensor.operations.NativeSimdTensorOperations"
                     );
                     pick = nativeClazz.getConstructor().newInstance();
-                    // This will throw if no shared lib found
                 } catch (Throwable t) {
-                    throw new IllegalStateException(
-                        "The native backend was requested but is not available. Add 'ao.bitubi:bitubi-inference-4j-native' "
-                            + "to the classpath, or use bi4j.backend=panama.",
-                        t
-                    );
+                    if (!belowNativeFloor(t) || MachineSpec.VECTOR_TYPE == MachineSpec.Type.NONE) throw nativeUnavailable(t);
+                    logger.warn("Falling back to Panama: {}", t.getCause().getMessage());
+                    pick = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
                 }
                 break;
             default:
