@@ -116,6 +116,13 @@ public final class FloatBufferTensor extends AbstractTensor<FloatVector, Float> 
     }
 
     @Override
+    public void set(float v, int i, int j) {
+        Preconditions.checkArgument(shape.dims() == 2, "Must specify all dimensions");
+        Preconditions.checkArgument(!b.isReadOnly(), "Can't modify a read only buffer");
+        b.put(getOffset(i, j), v);
+    }
+
+    @Override
     public MemorySegment getMemorySegment() {
         return segment;
     }
@@ -131,6 +138,17 @@ public final class FloatBufferTensor extends AbstractTensor<FloatVector, Float> 
     @Override
     public int getMemorySegmentOffset(int offset) {
         return offset * Float.BYTES;
+    }
+
+    @Override
+    public FloatVector getVector(VectorSpecies<Float> species, int i, int j) {
+        return FloatVector.fromMemorySegment(species, segment, getMemorySegmentOffset(getOffset(i, j)), ByteOrder.LITTLE_ENDIAN);
+    }
+
+    @Override
+    public float get(int i, int j) {
+        Preconditions.checkArgument(shape.dims() == 2, "Must specify all dimensions");
+        return b.get(getOffset(i, j));
     }
 
     @Override

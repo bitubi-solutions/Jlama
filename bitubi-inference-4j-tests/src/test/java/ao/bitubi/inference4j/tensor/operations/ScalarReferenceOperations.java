@@ -19,10 +19,11 @@ import ao.bitubi.inference4j.safetensors.DType;
 import ao.bitubi.inference4j.tensor.AbstractTensor;
 import com.google.common.base.Preconditions;
 
-public class NaiveTensorOperations implements TensorOperations {
+/** Plain scalar loops, no SIMD: an independent oracle for tests and benchmarks. Not a product backend. */
+public class ScalarReferenceOperations implements TensorOperations {
     @Override
     public String name() {
-        return "Naive Java Operations";
+        return "Scalar Reference Operations (tests only)";
     }
 
     // a[0..n] += b[0..n]

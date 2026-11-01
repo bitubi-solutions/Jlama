@@ -91,6 +91,11 @@ public class TensorShape {
         return tshape[i];
     }
 
+    /** Same result as {@code getOffset(i, j)} with varargs, without allocating an array (hot loops). */
+    public final int getOffset(int i, int j) {
+        return sparseColumnLength * (i - sparseRowOffset) + j - sparseColumnOffset;
+    }
+
     public final int getOffset(int... pdims) {
         // Preconditions.checkArgument(pdims.length == dims(), "Method requires all dimensions specified");
         switch (pdims.length) {

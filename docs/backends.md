@@ -4,23 +4,22 @@ Medições de 2026-10-12, JDK 25, Intel Core Ultra 7 255H (AVX2 e AVX-VNNI, sem 
 
 ## O que existe hoje
 
-São **3 backends** de operações de tensor. Não há backend de GPU (o WebGPU é um spike por avaliar, sub-projeto 1b).
+São **2 backends** de operações de tensor (o `naive`, escalar, foi descartado por decisão do autor em 2026-10-12). Não há backend de GPU (o WebGPU é um spike por avaliar, sub-projeto 1b).
 
 | Backend | Valor de `bi4j.backend` | O que é | Estado |
 |---|---|---|---|
 | Panama | `panama` | Java puro com a Vector API (`jdk.incubator.vector`). Caminhos para AVX-512, AVX2 (256 bits) e ARM de 128 bits | **Funciona e é o padrão** |
 | Native | `native` | C com SIMD, chamado por FFM (módulo `bitubi-inference-4j-native`) | **Funciona depois da correção desta branch**; continua opt-in (ver "Antes de o tornar padrão") |
-| Naive | `naive` | Java escalar, sem vetores | **Falha** com modelos Q4 (ver abaixo); só entra no `auto` se a máquina não tiver vetores |
 
 ## Como escolher
 
 ```bash
-java -Dbi4j.backend=panama ...      # auto (padrão) | panama | naive | native
+java -Dbi4j.backend=panama ...      # auto (padrão) | panama | native
 ```
 
-- `auto` (padrão): Panama quando há vetores; senão Naive. **Nunca escolhe o nativo sozinho.**
+- `auto` (padrão): Panama, que exige a Vector API (`--add-modules=jdk.incubator.vector`); sem ela falha com uma mensagem que diz o que fazer. **Nunca escolhe o nativo sozinho.**
 - O prefixo antigo `jlama.backend` é aceito. A flag antiga `use_native_tensor_operations=true` continua a selecionar o nativo quando o backend é `auto`.
-- Uma escolha explícita que não pode ser atendida falha com mensagem que diz o que fazer: `panama` sem a Vector API ativa pede `--add-modules=jdk.incubator.vector`; `native` sem o módulo no classpath pede o artefato; um nome desconhecido lista os válidos.
+- Uma escolha explícita que não pode ser atendida falha com mensagem que diz o que fazer: `auto` e `panama` sem a Vector API ativa pedem `--add-modules=jdk.incubator.vector`; `native` sem o módulo no classpath pede o artefato; um nome desconhecido lista os válidos.
 - O backend em uso aparece no log (`Using Panama Vector Operations (OffHeap)`) e na linha `PERF` do teste de desempenho.
 
 ## Variantes do nativo
@@ -86,11 +85,16 @@ Notas:
 - **Memória:** o número que conta é o pico de RSS (`VmHWM`, Linux). Os tensores ficam fora do heap Java, então `heap_used_mb` subestima muito. Em outros sistemas o RSS aparece como -1.
 - **Velocidade:** prefill = tokens do prompt por segundo; decode = tokens gerados por segundo.
 - **Ruído:** esta máquina varia muito entre sessões (uma hora antes o Panama media 24 e 8 tok/s). Compare só rodadas intercaladas na mesma sessão. Duas rodadas por backend dão a ordem de grandeza, não um intervalo de confiança.
-- O **Naive** continua sem medição: falha com `IndexOutOfBoundsException` em `Q4ByteBufferTensor.make` (chamado de `CausalSelfAttention.forward`) com este modelo. Não foi investigado; a correção do canto não o tocou.
 
 ## Qual é o mais eficiente
 
 Entre os que funcionam: o **nativo**, neste hardware e neste modelo, no prefill (cerca de 2,4x) e na memória (cerca de 28% menos de RSS); no decode a vantagem é pequena e está dentro do ruído. O Panama continua o padrão por não depender de uma biblioteca compilada por sistema operacional.
+
+## Onde vai a memória (Native Memory Tracking e JFR)
+
+- A diferença de pico de RSS entre Panama e nativo foi quase toda **heap Java comprometido** (585 MB contra 328 MB numa medição); JIT (Code 19,6 contra 20,0 MB), classes e threads são iguais. Os tensores ficam fora do heap e são iguais nos dois.
+- **O RSS varia muito entre execuções do mesmo backend** (o Panama deu de 793 a 1143 MB), porque depende da expansão do heap pelo G1. Para comparar memória é preciso fixar o heap ou medir a taxa de alocação.
+- Perfil de alocações do Panama: **84% a 87% eram `int[]` criados no laço quente do GEMM** (parâmetros variádicos de `getVector`, `get` e `set`). O ramo `perf/no-varargs-alloc` acrescenta sobrecargas de dois inteiros e esse valor cai para 5%. **O efeito em tok/s não está demonstrado:** os A/B feitos sofreram carga do hospedeiro (a carga do modelo foi de 4 s para 18 s) e não permitem concluir. A mudança tem testes verdes (28) e saída idêntica à referência, mas não deve ser integrada como "otimização" sem um A/B numa máquina calma.
 
 ## Antes de tornar o nativo o padrão
 
@@ -101,7 +105,7 @@ Entre os que funcionam: o **nativo**, neste hardware e neste modelo, no prefill 
 
 ## Defeitos que continuam abertos
 
-- Backend **Naive** quebra com Q4. Reproduzível com `PERF_BASELINE=1 PERF_WARMUP=0 PERF_RUNS=1 PERF_MAX_TOKENS=80` e `-Dbi4j.backend=naive`.
+Nenhum defeito de correção conhecido nos dois backends. Abertos: o build do nativo não é portável entre CPUs (`-march=native`), e o laço quente do Panama ainda aloca (ver abaixo).
 
 ## Reproduzir
 

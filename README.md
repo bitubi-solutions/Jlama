@@ -38,8 +38,8 @@ Implementa:
 Requer **JDK 25 ou superior** (a Vector API ainda é um módulo em incubação: `--add-modules jdk.incubator.vector`).
 Só o JDK 25 é testado; versões mais novas podem alterar a Vector API.
 
-Backends de tensores: o padrão é Panama (`-Dbi4j.backend=auto|panama|naive|native`). O nativo nunca é escolhido sozinho
-(era incorreto por um defeito no cálculo dos blocos de borda, já corrigido; falta torná-lo portável entre CPUs); o `naive` falha com modelos Q4. Detalhes e medições em
+Backends de tensores: o padrão é Panama (`-Dbi4j.backend=auto|panama|native`). O nativo nunca é escolhido sozinho
+(era incorreto por um defeito no cálculo dos blocos de borda, já corrigido; falta torná-lo portável entre CPUs). Detalhes e medições em
 [`docs/backends.md`](./docs/backends.md).
 
 ## Início rápido

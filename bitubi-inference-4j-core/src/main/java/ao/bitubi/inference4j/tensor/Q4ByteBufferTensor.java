@@ -211,6 +211,11 @@ public final class Q4ByteBufferTensor extends AbstractTensor<ByteVector, Byte> {
     }
 
     @Override
+    public ByteVector getVector(VectorSpecies<Byte> species, int i, int j) {
+        return ByteVector.fromMemorySegment(species, segment, getMemorySegmentOffset(getOffset(i, j)), ByteOrder.LITTLE_ENDIAN);
+    }
+
+    @Override
     public ByteVector getVector(VectorSpecies<Byte> species, int... voffset) {
         int offset = getOffset(voffset);
         return ByteVector.fromMemorySegment(species, segment, getMemorySegmentOffset(offset), ByteOrder.LITTLE_ENDIAN);

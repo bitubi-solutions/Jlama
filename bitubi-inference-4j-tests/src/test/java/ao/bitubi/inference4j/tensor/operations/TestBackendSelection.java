@@ -17,7 +17,6 @@
  */
 package ao.bitubi.inference4j.tensor.operations;
 
-import static ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider.Backend.NAIVE;
 import static ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider.Backend.NATIVE;
 import static ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider.Backend.PANAMA;
 import static ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider.resolveBackend;
@@ -38,14 +37,7 @@ public class TestBackendSelection {
     }
 
     @Test
-    public void autoFallsBackToNaiveWithoutVectors() {
-        assertEquals(NAIVE, resolveBackend(null, false, MachineSpec.Type.NONE));
-        assertEquals(NAIVE, resolveBackend("auto", false, MachineSpec.Type.NONE));
-    }
-
-    @Test
     public void explicitChoiceIsHonoredAndCaseInsensitive() {
-        assertEquals(NAIVE, resolveBackend("naive", false, MachineSpec.Type.AVX_256));
         assertEquals(PANAMA, resolveBackend("PANAMA", false, MachineSpec.Type.AVX_256));
         assertEquals(NATIVE, resolveBackend("Native", false, MachineSpec.Type.AVX_256));
     }
@@ -54,16 +46,28 @@ public class TestBackendSelection {
     public void legacyNativeFlagStillSelectsNativeWhenBackendIsAuto() {
         assertEquals(NATIVE, resolveBackend(null, true, MachineSpec.Type.AVX_256));
         // an explicit backend wins over the legacy flag
-        assertEquals(NAIVE, resolveBackend("naive", true, MachineSpec.Type.AVX_256));
+        assertEquals(PANAMA, resolveBackend("panama", true, MachineSpec.Type.AVX_256));
     }
 
     @Test
-    public void panamaWithoutVectorsFailsWithActionableMessage() {
+    public void withoutTheVectorApiAutoAndPanamaFailWithActionableMessage() {
+        for (String requested : new String[] { null, "auto", "panama" }) {
+            try {
+                resolveBackend(requested, false, MachineSpec.Type.NONE);
+                fail("expected IllegalArgumentException for " + requested);
+            } catch (IllegalArgumentException e) {
+                assertTrue(e.getMessage(), e.getMessage().contains("jdk.incubator.vector"));
+            }
+        }
+    }
+
+    @Test
+    public void theNaiveBackendNoLongerExists() {
         try {
-            resolveBackend("panama", false, MachineSpec.Type.NONE);
+            resolveBackend("naive", false, MachineSpec.Type.AVX_256);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("jdk.incubator.vector"));
+            assertTrue(e.getMessage(), e.getMessage().contains("Valid values: auto, panama, native."));
         }
     }
 
@@ -74,7 +78,7 @@ public class TestBackendSelection {
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             String m = e.getMessage();
-            assertTrue(m, m.contains("gpu") && m.contains("auto") && m.contains("panama") && m.contains("naive") && m.contains("native"));
+            assertTrue(m, m.contains("gpu") && m.contains("auto") && m.contains("panama") && m.contains("native") && !m.contains("naive,"));
         }
     }
 

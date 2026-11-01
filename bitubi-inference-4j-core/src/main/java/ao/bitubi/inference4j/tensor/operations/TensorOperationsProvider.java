@@ -23,10 +23,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Picks the tensor operations backend. Select it with {@code -Dbi4j.backend=<auto|panama|naive|native>}
- * (the legacy {@code jlama.} prefix is also accepted). {@code auto}, the default, uses Panama (the Vector API)
- * when the machine has vectors and falls back to the scalar backend otherwise. The native backend is never
- * chosen automatically: on JDK 25 it produced wrong results in the smoke test.
+ * Picks the tensor operations backend. Select it with {@code -Dbi4j.backend=<auto|panama|native>}
+ * (the legacy {@code jlama.} prefix is also accepted). {@code auto}, the default, uses Panama (the Vector API),
+ * which needs {@code --add-modules=jdk.incubator.vector}. The native backend is never chosen automatically.
  */
 public class TensorOperationsProvider {
     static {
@@ -35,7 +34,6 @@ public class TensorOperationsProvider {
 
     public enum Backend {
         PANAMA,
-        NAIVE,
         NATIVE
     }
 
@@ -74,22 +72,24 @@ public class TensorOperationsProvider {
         switch (r) {
             case "auto":
                 if (legacyNativeFlag) return Backend.NATIVE;
-                return vectorType == MachineSpec.Type.NONE ? Backend.NAIVE : Backend.PANAMA;
+                return requirePanama(vectorType);
             case "panama":
-                if (vectorType == MachineSpec.Type.NONE) throw new IllegalArgumentException(
-                    "bi4j.backend=panama needs the Java Vector API, which is not available. "
-                        + "Add --add-modules=jdk.incubator.vector to the JVM options, or use bi4j.backend=naive."
-                );
-                return Backend.PANAMA;
-            case "naive":
-                return Backend.NAIVE;
+                return requirePanama(vectorType);
             case "native":
                 return Backend.NATIVE;
             default:
                 throw new IllegalArgumentException(
-                    "Unknown bi4j.backend '" + requested + "'. Valid values: auto, panama, naive, native."
+                    "Unknown bi4j.backend '" + requested + "'. Valid values: auto, panama, native."
                 );
         }
+    }
+
+    private static Backend requirePanama(MachineSpec.Type vectorType) {
+        if (vectorType == MachineSpec.Type.NONE) throw new IllegalArgumentException(
+            "The Java Vector API is not available, and it is required. "
+                + "Add --add-modules=jdk.incubator.vector to the JVM options (the supported JDK is 25)."
+        );
+        return Backend.PANAMA;
     }
 
     /** True when the native constructor refused this CPU; {@code newInstance} wraps what the constructor throws. */
@@ -125,9 +125,6 @@ public class TensorOperationsProvider {
                     logger.warn("Falling back to Panama: {}", t.getCause().getMessage());
                     pick = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
                 }
-                break;
-            case NAIVE:
-                pick = new NaiveTensorOperations();
                 break;
             default:
                 pick = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);

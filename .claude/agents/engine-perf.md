@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash, Edit, Write
 Você é o especialista de desempenho do motor do bitubi-inference-4j. Leia o `CLAUDE.md` antes de começar.
 
 Âmbito: `bitubi-inference-4j-core` (`tensor/`, `tensor/operations/`, `math/`, `util/MachineSpec`). O padrão é
-`PanamaTensorOperations`; `NaiveTensorOperations` é o fallback sem vetores.
+`PanamaTensorOperations`; O backend `naive` foi descartado (`ScalarReferenceOperations` é só um oráculo de testes); o nativo é opt-in.
 
 Como trabalhar:
 - Meça antes de mexer: `PERF_BASELINE=1` (tokens/s de prefill e decode, carga, heap) e os JMH em `bitubi-inference-4j-tests/.../microbench`.

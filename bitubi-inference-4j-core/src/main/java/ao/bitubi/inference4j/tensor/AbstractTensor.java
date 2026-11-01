@@ -204,6 +204,28 @@ public abstract class AbstractTensor<V extends Vector<?>, T extends Number> impl
         return stride;
     }
 
+    /** Allocation-free 2D offset; equivalent to {@code getOffset(new int[] {i, j})}. */
+    public final int getOffset(int i, int j) {
+        return shape.getOffset(i, j);
+    }
+
+    /**
+     * Allocation-free 2D vector load. Subclasses used in hot loops override it; the default keeps the old behavior.
+     */
+    public V getVector(VectorSpecies<T> species, int i, int j) {
+        return getVector(species, new int[] { i, j });
+    }
+
+    /** Allocation-free 2D element write. Subclasses used in hot loops override it; the default keeps the old behavior. */
+    public void set(float v, int i, int j) {
+        set(v, new int[] { i, j });
+    }
+
+    /** Allocation-free 2D element read. Subclasses used in hot loops override it; the default keeps the old behavior. */
+    public float get(int i, int j) {
+        return get(new int[] { i, j });
+    }
+
     public final int getOffset(int... dims) {
         return shape.getOffset(dims);
     }

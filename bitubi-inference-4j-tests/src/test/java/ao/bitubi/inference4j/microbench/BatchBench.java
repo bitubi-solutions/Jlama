@@ -17,7 +17,7 @@ package ao.bitubi.inference4j.microbench;
 
 import ao.bitubi.inference4j.math.VectorMath;
 import ao.bitubi.inference4j.tensor.*;
-import ao.bitubi.inference4j.tensor.operations.NaiveTensorOperations;
+import ao.bitubi.inference4j.tensor.operations.ScalarReferenceOperations;
 import ao.bitubi.inference4j.tensor.operations.TensorOperations;
 import java.util.Collection;
 import java.util.concurrent.ThreadLocalRandom;
@@ -35,7 +35,7 @@ import org.openjdk.jmh.runner.options.TimeValue;
 @Fork(warmups = 1, value = 1, jvmArgsPrepend = { "--add-modules=jdk.incubator.vector", "--enable-preview",
     "-Dbi4j.backend=panama" })
 public class BatchBench {
-    private static final TensorOperations ops = new NaiveTensorOperations(); // TensorOperationsProvider.get();
+    private static final TensorOperations ops = new ScalarReferenceOperations(); // TensorOperationsProvider.get();
 
     private static final int BATCH_SIZE = 1024;
     private static final int SIZE = 1024;

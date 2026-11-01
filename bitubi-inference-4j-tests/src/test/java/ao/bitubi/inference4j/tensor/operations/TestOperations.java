@@ -50,13 +50,12 @@ public class TestOperations {
 
     private static final Map<DType, Function<AbstractTensor, AbstractTensor>> bTypes = new TreeMap<>();
 
-    private static final NaiveTensorOperations controlOps = new NaiveTensorOperations();
+    private static final ScalarReferenceOperations controlOps = new ScalarReferenceOperations();
     private static final TensorOperations globalOps = TensorOperationsProvider.get();
 
     @BeforeClass
     public static void init() {
         logger.info("Globally using {}", globalOps.name());
-        opTypes.add(new NaiveTensorOperations());
         opTypes.add(new PanamaTensorOperations(MachineSpec.Type.AVX_512));
         opTypes.add(new PanamaTensorOperations(MachineSpec.Type.AVX_256));
         opTypes.add(new PanamaTensorOperations(MachineSpec.Type.ARM_128));

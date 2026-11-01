@@ -19,7 +19,7 @@ import ao.bitubi.inference4j.tensor.BFloat16BufferTensor;
 import ao.bitubi.inference4j.tensor.FloatBufferTensor;
 import ao.bitubi.inference4j.tensor.Q4ByteBufferTensor;
 import ao.bitubi.inference4j.tensor.Q8ByteBufferTensor;
-import ao.bitubi.inference4j.tensor.operations.NaiveTensorOperations;
+import ao.bitubi.inference4j.tensor.operations.ScalarReferenceOperations;
 import ao.bitubi.inference4j.tensor.operations.PanamaTensorOperations;
 import ao.bitubi.inference4j.tensor.operations.TensorOperations;
 import ao.bitubi.inference4j.tensor.operations.TensorOperationsProvider;
@@ -38,7 +38,7 @@ import org.openjdk.jmh.infra.Blackhole;
     "-XX:CompilerDirectivesFile=inlinerules.json", "--enable-native-access=ALL-UNNAMED", "-XX:+AlignVector" })
 public class TensorBench {
     private static final PanamaTensorOperations ops = new PanamaTensorOperations(MachineSpec.VECTOR_TYPE);
-    private static final TensorOperations n2ops = new NaiveTensorOperations();
+    private static final TensorOperations n2ops = new ScalarReferenceOperations();
     private static final TensorOperations nops = TensorOperationsProvider.get();
 
     private static final int SIZE = 2048;

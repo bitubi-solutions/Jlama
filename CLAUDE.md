@@ -12,13 +12,14 @@ Spec e plano: `docs/superpowers/specs/` e `docs/superpowers/plans/`. Ordem dos s
 
 - **Nunca adicionar trailers do Claude** (`Co-Authored-By`, `Claude-Session`, "Generated with...") em
   commits ou PRs.
-- Idioma: português europeu em docs, commits e respostas.
+- Idioma: **CLI e documentação em inglês** (decisão do autor, 2026-10-18; docs antigos em português estão a ser traduzidos). Conversa com o autor em português europeu.
+- **Sem retrocompatibilidade com o Jlama** (decisão do autor, 2026-10-18): contratos legados (`jlama.*`, `JLAMA_*`, `X-Jlama-Session`, `use_native_tensor_operations`) são removidos; a migração de quem usa o SDK do Jlama é facilitada por guia e receita OpenRewrite, e o SDK deve ficar preparado para integração com o LangChain4j (desenho só depois da revisão de DX do SDK).
 - JDK 25 é o mínimo e único alvo de build, teste e execução. Bytecode fica em 21 até o upgrade do
   Spring (o Spring Boot 3.3 não lê classes versão 69).
-- **Panama (Vector API) é a implementação padrão.** O backend se escolhe com `-Dbi4j.backend=auto|panama|naive|native`
+- **Panama (Vector API) é a implementação padrão.** O backend se escolhe com `-Dbi4j.backend=auto|panama|native`
   (ver `docs/backends.md`). O nativo nunca é escolhido sozinho: dava resposta errada por um defeito no
   cálculo dos blocos de borda do GEMM (corrigido em C e em Java; não era o JDK 25) e ainda é compilado com
-  `-march=native`, não portável entre CPUs. O `naive` falha com modelos Q4. A flag antiga `use_native_tensor_operations` ainda é aceita.
+  `-march=native`, não portável entre CPUs.
 - Fase de fundação: nenhuma mudança de comportamento do motor.
 - **DX é requisito do produto inteiro** (SDK, API, UI, CLI, harness, deploy, docs). Cada componente tem
   revisão própria quando chegar a sua vez; por enquanto só a intenção está registada em
